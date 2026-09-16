@@ -30,9 +30,17 @@ Dùng đúng 5 câu hỏi mẫu trong tài liệu gốc:
 
 ## Test guardrail an toàn (chạy tay hoặc pytest)
 - Role DB dùng để kết nối KHÔNG có quyền ghi (verify bằng thử `DELETE`/`UPDATE`
-  trực tiếp qua role đó, phải bị Postgres từ chối).
-- Role DB không đọc được dữ liệu ngoài 2 DB đã cấp quyền (thử connect + SELECT
-  vào 1 DB khác, phải bị từ chối ở tầng SELECT dù CONNECT có thể vẫn qua).
+  trực tiếp qua `src/db/connection.py::get_connection()`, phải bị Postgres
+  từ chối — `ReadOnlySqlTransaction`).
+- 2 lớp phòng thủ độc lập chặn đọc dữ liệu ngoài phạm vi — verify cả 2:
+  - **Lớp code** (`get_connection()`): gọi với `dbname` không phải
+    `its`/`virtual_fence` (vd. `"vms_db"`) phải raise `ValueError` NGAY,
+    không mở connection thật.
+  - **Lớp Postgres** (role `agent_readonly`, dự phòng nếu lớp code bị bỏ
+    qua/lỗi): test bằng `psycopg2.connect()` trực tiếp (KHÔNG qua
+    `get_connection()`) vào 1 DB khác — CONNECT vẫn qua (PUBLIC CONNECT mặc
+    định của cluster) nhưng SELECT phải bị từ chối
+    (`InsufficientPrivilege`).
 
 ## Không cần test ở MVP này
 - Load test / nhiều người dùng đồng thời.
