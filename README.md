@@ -119,6 +119,27 @@ giả 1 tool_call thay vì gọi OpenAI thật.
 Test thật (5 câu hỏi mẫu, cần `.env` đầy đủ): xem bảng trong
 `specs/test-plan.md` mục "Test thật".
 
+## Demo với local
+
+Không có frontend/backend tách riêng (xem mục "Kiến trúc") nên **chỉ 1 lệnh,
+1 cổng duy nhất** — không có bước "start frontend" và "start backend" riêng
+biệt, và không có bước cấu hình API base URL cho frontend, vì
+`static/index.html` gọi thẳng `fetch("/ask", ...)` bằng **relative path**
+(cùng origin với chính trang đang mở), không hardcode host/port nào:
+
+```bash
+uvicorn src.main:app --reload --port 8000
+```
+
+- **UI (frontend)**: [http://localhost:8000/](http://localhost:8000/)
+- **API (backend)**: cùng địa chỉ, cổng 8000 — `POST http://localhost:8000/ask`,
+  `GET http://localhost:8000/health`, docs tương tác tại
+  [http://localhost:8000/docs](http://localhost:8000/docs)
+
+Đổi cổng (vd. máy đã dùng 8000) chỉ cần đổi `--port` khi chạy `uvicorn` —
+`static/index.html` vẫn hoạt động đúng vì gọi relative path, không cần sửa
+gì trong code hay `.env`.
+
 ## Demo với ngrok
 
 App chỉ có 1 cổng duy nhất (FastAPI phục vụ cả API và static UI), nên demo
