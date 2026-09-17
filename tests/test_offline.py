@@ -71,7 +71,9 @@ def test_tool_sql_chan_cau_lenh_ghi():
 
 def test_danh_sach_tool_dung_thiet_ke():
     """#5: Danh sách tool đúng như thiết kế (đủ tool cần, không thiếu) —
-    khớp specs/product-spec.md mục "Agent & tool"."""
+    khớp specs/product-spec.md mục "Agent & tool". Đã mở rộng ở Phase 5
+    (v2) với 3 tool domain mới (FACE/FIRE/ANOMALY) — xem
+    specs/change-log.md 2026-09-17."""
     tool_names = {t.name for t in TOOLS}
     assert tool_names == {
         "get_db_schema",
@@ -79,5 +81,8 @@ def test_danh_sach_tool_dung_thiet_ke():
         "count_vehicle_flow",
         "trace_plate",
         "zone_intrusion_by_hour",
+        "count_face_events",
+        "count_fire_smoke_events",
+        "count_anomaly_events",
         "run_sql_readonly",
     }

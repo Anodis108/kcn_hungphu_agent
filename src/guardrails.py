@@ -67,6 +67,23 @@ STAT_KEYWORDS = frozenset(
         "truy vet",
         "khung giờ",
         "khung gio",
+        # 5 domain sự kiện VMS mới (Phase 2, specs/implementation-plan.md) —
+        # tool/DB tương ứng CHƯA code (Phase 3/5), chỉ thêm từ khoá nhận diện
+        # phạm vi trước, tránh in_scope() từ chối oan khi Phase 3/5 xong.
+        "khuôn mặt",
+        "khuon mat",
+        "ẩu đả",
+        "au da",
+        "đám đông",
+        "dam dong",
+        "leo trèo",
+        "leo treo",
+        "cháy",
+        "chay",
+        "khói",
+        "khoi",
+        "mực nước",
+        "muc nuoc",
     }
 )
 

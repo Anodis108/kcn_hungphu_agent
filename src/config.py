@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     db_password: str = Field(default="", alias="DB_PASSWORD")
     db_name_its: str = Field(default="its", alias="DB_NAME_ITS")
     db_name_fence: str = Field(default="virtual_fence", alias="DB_NAME_FENCE")
+    # 3 DB mới (Phase 2, implementation-plan.md) — role agent_readonly đã
+    # được GRANT SELECT trên cả 3 (xem specs/change-log.md 2026-09-17).
+    # CHƯA dùng ở src/db/connection.py (whitelist mở rộng thuộc Phase 3).
+    db_name_face: str = Field(default="smart_face", alias="DB_NAME_FACE")
+    db_name_fire: str = Field(default="firesmoke", alias="DB_NAME_FIRE")
+    db_name_anomaly: str = Field(default="anomaly", alias="DB_NAME_ANOMALY")
     db_organization_id: int = Field(default=0, alias="DB_ORGANIZATION_ID")
     db_query_timeout_s: float = Field(default=5.0, alias="DB_QUERY_TIMEOUT_S")
     db_max_rows: int = Field(default=200, alias="DB_MAX_ROWS")
@@ -40,6 +46,15 @@ class Settings(BaseSettings):
     # ── Guardrail output (giới hạn độ dài câu trả lời) ──────────────────────
     guardrails_min_answer_len: int = Field(default=5, alias="GUARDRAILS_MIN_ANSWER_LEN")
     guardrails_max_answer_len: int = Field(default=2000, alias="GUARDRAILS_MAX_ANSWER_LEN")
+
+    # ── Observability (Langfuse, Phase 4, tự host — xem langfuse/) ──────────
+    # Mặc định TẮT — không ai bắt buộc phải chạy Langfuse để dùng phần còn
+    # lại của app. src/monitoring/tracing.py (chưa code) sẽ no-op hoàn toàn
+    # khi monitoring_enabled=False.
+    monitoring_enabled: bool = Field(default=False, alias="MONITORING_ENABLED")
+    langfuse_public_key: str = Field(default="", alias="LANGFUSE_PUBLIC_KEY")
+    langfuse_secret_key: str = Field(default="", alias="LANGFUSE_SECRET_KEY")
+    langfuse_host: str = Field(default="http://localhost:3000", alias="LANGFUSE_HOST")
 
     @property
     def api_keys(self) -> list[str]:

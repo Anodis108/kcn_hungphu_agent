@@ -160,6 +160,155 @@ def zone_intrusion_by_hour(date_from: str, date_to: str, zone_code: str | None =
     }
 
 
+_FACE_GROUP_COLUMNS = {"direction": "direction", "department_name": "department_name"}
+
+
+def count_face_events(
+    date_from: str,
+    date_to: str,
+    direction: str | None = None,
+    group_by: str = "direction",
+) -> dict:
+    """Đếm lượt nhận diện khuôn mặt theo khoảng thời gian, group theo 1+ cột
+    trong {direction, department_name} (mặc định direction). Dùng access_time
+    (KHÔNG phải event_time) — cột thời gian của smf_face_events."""
+    group_cols = [c.strip() for c in group_by.split(",") if c.strip()]
+    invalid = [c for c in group_cols if c not in _FACE_GROUP_COLUMNS]
+    if invalid or not group_cols:
+        return {"error": f"group_by chỉ nhận {sorted(_FACE_GROUP_COLUMNS)}, nhận '{group_by}'."}
+
+    org_sql, org_params = _org_filter()
+    clauses = [org_sql, "access_time >= %s", "access_time < %s"]
+    params: list = list(org_params) + [date_from, date_to]
+
+    if direction:
+        d = direction.strip().upper()
+        if d not in _DIRECTIONS:
+            return {"error": f"direction phải là IN/OUT, nhận '{direction}'."}
+        clauses.append("direction = %s")
+        params.append(d)
+
+    select_cols = ", ".join(group_cols)
+    sql = f"""
+        SELECT {select_cols}, count(*) AS so_luot
+        FROM smf_face_events
+        WHERE {" AND ".join(clauses)}
+        GROUP BY {select_cols}
+        ORDER BY so_luot DESC
+        LIMIT {settings.db_max_rows};
+    """
+    with get_connection(settings.db_name_face) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return {
+        "columns": [*group_cols, "so_luot"],
+        "rows": [list(r) for r in rows],
+        "row_count": len(rows),
+    }
+
+
+_FIRE_ENTITY_TYPES = {"FIRE", "SMOKE"}
+
+
+def count_fire_smoke_events(date_from: str, date_to: str, entity_type: str | None = None) -> dict:
+    """Đếm cảnh báo cháy/khói theo khoảng thời gian, group theo entity_type
+    (FIRE/SMOKE) + alert_level (HIGH/MEDIUM/LOW).
+
+    LƯU Ý DATA: firesmoke.fire_smoke_event hiện RỖNG HOÀN TOÀN (verify
+    2026-09-17, xem specs/change-log.md) — row_count=0 là ĐÚNG dữ liệu
+    thật cho MỌI khoảng thời gian, không phải lỗi tool/kết nối."""
+    org_sql, org_params = _org_filter()
+    clauses = [org_sql, "event_time >= %s", "event_time < %s"]
+    params: list = list(org_params) + [date_from, date_to]
+
+    if entity_type:
+        e = entity_type.strip().upper()
+        if e not in _FIRE_ENTITY_TYPES:
+            return {"error": f"entity_type phải thuộc {sorted(_FIRE_ENTITY_TYPES)}, nhận '{entity_type}'."}
+        clauses.append("entity_type = %s")
+        params.append(e)
+
+    sql = f"""
+        SELECT entity_type, alert_level, count(*) AS so_luot
+        FROM fire_smoke_event
+        WHERE {" AND ".join(clauses)}
+        GROUP BY entity_type, alert_level
+        ORDER BY so_luot DESC
+        LIMIT {settings.db_max_rows};
+    """
+    with get_connection(settings.db_name_fire) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return {
+        "columns": ["entity_type", "alert_level", "so_luot"],
+        "rows": [list(r) for r in rows],
+        "row_count": len(rows),
+    }
+
+
+_ANOMALY_EVENT_TYPES = {"FIGHT_DETECTION", "CROWD_DETECTION", "INTRUSION_DETECTION", "WATER_LEVEL_DETECTION"}
+_ANOMALY_GROUP_COLUMNS = {"severity": "severity", "zone_name": "zone_name"}
+
+
+def count_anomaly_events(
+    date_from: str,
+    date_to: str,
+    event_type: str,
+    group_by: str | None = None,
+) -> dict:
+    """Đếm sự kiện trong anomaly.anomaly_event theo khoảng thời gian — DÙNG
+    CHUNG cho 4 sự kiện: FIGHT_DETECTION (ẩu đả), CROWD_DETECTION (đám đông),
+    INTRUSION_DETECTION (leo trèo — KHÁC zone_intrusion_by_hour/"vùng cấm":
+    leo trèo dùng bảng anomaly_event, vùng cấm dùng bảng zone_event, đừng
+    nhầm dù cả 2 đều có thể dịch là "xâm nhập"), WATER_LEVEL_DETECTION
+    (mực nước).
+
+    event_type BẮT BUỘC, chỉ nhận đúng 4 giá trị trên (validate whitelist —
+    bảng còn có event_type khác như SIDEWALK_ENCROACHMENT/
+    LITTERING_DETECTION nhưng KHÔNG thuộc 8 domain của sản phẩm này, xem
+    specs/product-spec.md). Để so sánh nhiều event_type, gọi hàm này NHIỀU
+    LẦN (mỗi lần 1 event_type) — giống cách count_vehicle_flow được gọi
+    nhiều lần cho nhiều vehicle_type.
+
+    group_by tuỳ chọn, group thêm theo 1+ cột trong {severity, zone_name} —
+    để trống chỉ trả tổng số lượt."""
+    if not event_type or event_type.strip().upper() not in _ANOMALY_EVENT_TYPES:
+        return {"error": f"event_type phải thuộc {sorted(_ANOMALY_EVENT_TYPES)}, nhận '{event_type}'."}
+    event_type = event_type.strip().upper()
+
+    group_cols: list[str] = []
+    if group_by:
+        group_cols = [c.strip() for c in group_by.split(",") if c.strip()]
+        invalid = [c for c in group_cols if c not in _ANOMALY_GROUP_COLUMNS]
+        if invalid:
+            return {"error": f"group_by chỉ nhận {sorted(_ANOMALY_GROUP_COLUMNS)}, nhận '{group_by}'."}
+
+    org_sql, org_params = _org_filter()
+    clauses = [org_sql, "event_time >= %s", "event_time < %s", "event_type = %s"]
+    params: list = list(org_params) + [date_from, date_to, event_type]
+
+    select_cols = ", ".join(group_cols) if group_cols else ""
+    select_clause = f"{select_cols}, count(*) AS so_luot" if select_cols else "count(*) AS so_luot"
+    group_sql = f"GROUP BY {select_cols}" if select_cols else ""
+
+    sql = f"""
+        SELECT {select_clause}
+        FROM anomaly_event
+        WHERE {" AND ".join(clauses)}
+        {group_sql}
+        ORDER BY so_luot DESC
+        LIMIT {settings.db_max_rows};
+    """
+    with get_connection(settings.db_name_anomaly) as conn, conn.cursor() as cur:
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+    return {
+        "columns": [*group_cols, "so_luot"],
+        "rows": [list(r) for r in rows],
+        "row_count": len(rows),
+    }
+
+
 def list_zones() -> dict:
     """Liệt kê camera/khu vực hợp lệ — tránh agent đoán sai giá trị lọc."""
     its_sql = "SELECT DISTINCT camera_code, camera_name FROM plate_event ORDER BY 1;"

@@ -65,26 +65,31 @@ gì) trước khi code Phase 3/5 hiện thực hoá nó.
 Lưu ý: "leo trèo" (#6) và "vùng cấm" (#3) dùng 2 bảng khác nhau dù cả 2 đều
 có thể dịch là "xâm nhập" trong tiếng Việt — dễ nhầm khi thiết kế tool/prompt.
 
-### Giả định cần xác nhận trước khi code (chưa verify)
-- `smart_face`, `firesmoke`, `anomaly` nằm **cùng Postgres host** với
-  `its`/`virtual_fence` hiện tại (`DB_HOST` trong `.env`) — nếu sai, cần
-  thêm biến `.env` mới thay vì tái dùng `DB_HOST`.
-- Role đọc-only hiện tại (`agent_readonly`) CHƯA có `GRANT SELECT` trên 3
-  DB mới — cần chạy lại SQL tạo role (mục "Tạo DB role read-only" trong
-  README) cho từng DB mới.
+### Giả định — ĐÃ XÁC NHẬN 2026-09-17
+- ~~`smart_face`, `firesmoke`, `anomaly` nằm cùng Postgres host với
+  `its`/`virtual_fence`~~ — ĐÚNG, verify bằng cách connect thật tới cả 3
+  DB trên `DB_HOST` hiện tại (`192.168.1.250`), không cần biến `.env` mới.
+- ~~Role đọc-only hiện tại (`agent_readonly`) CHƯA có `GRANT SELECT` trên 3
+  DB mới~~ — ĐÚNG lúc đầu, đã GRANT xong (tái dùng role có sẵn, không tạo
+  role mới) — xem `specs/change-log.md` 2026-09-17.
 
 ### Checklist
-- [ ] Tạo role Postgres đọc-only trên 3 DB mới (`smart_face`, `firesmoke`,
+- [x] Tạo role Postgres đọc-only trên 3 DB mới (`smart_face`, `firesmoke`,
       `anomaly`) — lặp lại SQL mẫu trong README, chỉ đổi tên DB. Verify
-      SELECT chạy được, verify DELETE/UPDATE bị từ chối.
-- [ ] `src/config.py` — thêm `DB_NAME_FACE`, `DB_NAME_FIRE`,
+      SELECT chạy được, verify DELETE/UPDATE bị từ chối. (Xác nhận: dùng
+      role `agent_readonly` đã có sẵn, GRANT thêm trên 3 DB mới — không
+      tạo role mới. Xem `specs/change-log.md` 2026-09-17.)
+- [x] `src/config.py` — thêm `DB_NAME_FACE`, `DB_NAME_FIRE`,
       `DB_NAME_ANOMALY` (đổi được qua `.env` như 2 DB hiện có).
-      `.env.example` cập nhật tương ứng.
-- [ ] `src/guardrails.py` — mở rộng `STAT_KEYWORDS` với từ khoá domain mới
+      `.env.example` cập nhật tương ứng. (Xem `specs/change-log.md`
+      2026-09-17.)
+- [x] `src/guardrails.py` — mở rộng `STAT_KEYWORDS` với từ khoá domain mới
       (khuôn mặt, ẩu đả, đám đông, leo trèo, cháy, khói, mực nước) — nếu
-      không, câu hỏi domain mới sẽ bị `in_scope()` từ chối oan.
-- [ ] `eval/datasets/agent_stat/v2.yaml` — 30 case (giữ nguyên cấu trúc
-      slice của v1), trải đều theo 8 domain:
+      không, câu hỏi domain mới sẽ bị `in_scope()` từ chối oan. (Xem
+      `specs/change-log.md` 2026-09-17.)
+- [x] `eval/datasets/agent_stat/v2.yaml` — 30 case (giữ nguyên cấu trúc
+      slice của v1), trải đều theo 8 domain. (Xem `specs/change-log.md`
+      2026-09-17.)
 
       | Slice | Số case | Ghi chú |
       |---|---|---|
@@ -95,11 +100,14 @@ có thể dịch là "xâm nhập" trong tiếng Việt — dễ nhầm khi thi�
 
       Case giá trị đổi theo ngày vẫn chỉ dùng `must_include`/
       `must_include_tool`, không dùng `expected` cứng — đúng quy ước v1.
-- [ ] `eval/run.py` (mới) — script tối thiểu: đọc YAML, gọi `run_agent()`
+- [x] `eval/run.py` (mới) — script tối thiểu: đọc YAML, gọi `run_agent()`
       từng case, kiểm `must_include`/`must_include_tool`/
       `must_not_include`, in pass/fail theo `slice.type`. Sẽ CHƯA chạy hết
       được cho tới khi Phase 3 + Phase 5 xong (tool/domain mới chưa tồn
       tại) — viết trước là chủ ý, giống cách viết test trước khi code.
+      (Xem `specs/change-log.md` 2026-09-17 — script đi qua ĐÚNG pipeline
+      `check_input → in_scope → run_agent → check_output`, không chỉ gọi
+      thẳng `run_agent()`, để case out_of_scope/injection chấm đúng.)
 
 ---
 
@@ -114,10 +122,10 @@ có thể dịch là "xâm nhập" trong tiếng Việt — dễ nhầm khi thi�
       verify DELETE/UPDATE bị Postgres từ chối
 
 ### v2 — chưa code (domain mới, dựa trên Phase 2)
-- [ ] `src/db/connection.py` — mở rộng whitelist DB (lớp code chặn kết
+- [x] `src/db/connection.py` — mở rộng whitelist DB (lớp code chặn kết
       nối ngoài phạm vi) để chấp nhận thêm 3 DB mới, giữ nguyên cơ chế
-      chặn DB lạ.
-- [ ] `src/db/queries.py` — thêm hàm SQL tham số hoá theo đúng pattern có
+      chặn DB lạ. (Xem `specs/change-log.md` 2026-09-17.)
+- [x] `src/db/queries.py` — thêm hàm SQL tham số hoá theo đúng pattern có
       sẵn (placeholder `%s`, không nối chuỗi):
       - `count_face_events(date_from, date_to, direction, group_by)` →
         `smart_face.smf_face_events`
@@ -127,11 +135,15 @@ có thể dịch là "xâm nhập" trong tiếng Việt — dễ nhầm khi thi�
         `anomaly.anomaly_event`, DÙNG CHUNG cho 4 sự kiện (FIGHT_DETECTION/
         CROWD_DETECTION/INTRUSION_DETECTION/WATER_LEVEL_DETECTION),
         `event_type` bắt buộc + validate whitelist
-      - `water_level_latest(zone_code)` (tuỳ chọn — chỉ thêm nếu golden
-        dataset Phase 2 thực sự cần giá trị mực nước hiện tại, không chỉ
-        đếm sự kiện)
-- [ ] Test kết nối thật với role read-only cho 3 DB mới — verify SELECT
-      chạy được, verify DELETE/UPDATE bị từ chối (giống thủ tục v1).
+      - `water_level_latest(zone_code)` — KHÔNG thêm (golden dataset không
+        cần giá trị mực nước hiện tại, chỉ cần đếm sự kiện qua
+        `count_anomaly_events`).
+      (Xem `specs/change-log.md` 2026-09-17 — phát hiện + sửa bug org
+      filter khi test thật, ảnh hưởng cả `eval/datasets/agent_stat/v2.yaml`.)
+- [x] Test kết nối thật với role read-only cho 3 DB mới — verify SELECT
+      chạy được, verify DELETE/UPDATE bị từ chối (giống thủ tục v1). (Xem
+      `specs/change-log.md` 2026-09-17 — chạy lại tường minh 1 lần cho cả
+      3 DB, đã verify rải rác ở các item trước đó của Phase 2/3.)
 
 ---
 
@@ -140,19 +152,24 @@ có thể dịch là "xâm nhập" trong tiếng Việt — dễ nhầm khi thi�
 Chỉ dựng HẠ TẦNG tracing ở phase này — wiring vào pipeline thật (main.py,
 graph.py) thuộc Phase 5.
 
-- [ ] Deploy Langfuse **self-hosted trên chính máy này** bằng Docker
+- [x] Deploy Langfuse **self-hosted trên chính máy này** bằng Docker
       Compose chính thức của Langfuse (không dùng Langfuse Cloud). Xác
       nhận UI truy cập được, tạo 1 project, lấy `public_key`/`secret_key`.
-- [ ] `src/config.py` — thêm `MONITORING_ENABLED` (mặc định `false`),
+      (Xem `specs/change-log.md` 2026-09-17 — thư mục `langfuse/`, UI tại
+      `http://localhost:3000`, project/key tạo tự động qua
+      `LANGFUSE_INIT_*`, đã verify hoạt động thật qua API.)
+- [x] `src/config.py` — thêm `MONITORING_ENABLED` (mặc định `false`),
       `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`.
-      `.env.example` cập nhật, `requirements.txt` thêm `langfuse`.
-- [ ] `src/monitoring/tracing.py` (mới) — copy nguyên tắc từ
+      `.env.example` cập nhật, `requirements.txt` thêm `langfuse`. (Xem
+      `specs/change-log.md` 2026-09-17.)
+- [x] `src/monitoring/tracing.py` (mới) — copy nguyên tắc từ
       `llm-engineer-demo/app/monitoring/tracing.py`: `trace_answer()`
       (context manager cho 1 lượt `/ask`), `trace_step()` (nested span cho
       bước con). Lazy import + lazy client (không phụ thuộc cứng vào
       package `langfuse` khi tắt), no-op hoàn toàn khi
       `MONITORING_ENABLED=false`. Dùng langfuse SDK trực tiếp, KHÔNG bọc
-      qua LangChain callback.
+      qua LangChain callback. (Xem `specs/change-log.md` 2026-09-17 — phát
+      hiện + sửa thêm 1 bug hạ tầng Langfuse trong lúc test thật.)
 
 ---
 
@@ -174,9 +191,10 @@ gắn tracing (Phase 4) vào đúng chỗ.
 - [x] `static/index.html` — UI chat tối giản (HTML/JS thuần)
 
 ### v2 — chưa code
-- [ ] `src/agent/tools.py` — bọc 3 hàm mới từ Phase 3 thành `@tool`,
+- [x] `src/agent/tools.py` — bọc 3 hàm mới từ Phase 3 thành `@tool`,
       docstring nêu RÕ whitelist `event_type` hợp lệ cho
       `count_anomaly_events` (LLM đọc docstring để không bịa tham số).
+      (Xem `specs/change-log.md` 2026-09-17.)
 - [ ] `list_khu_vuc` (hoặc tool mới) — mở rộng liệt kê thêm camera có
       `ai_modules` FACE/FIRE/ANOMALY.
 - [ ] `src/main.py` (`ask()`) — bọc toàn bộ pipeline

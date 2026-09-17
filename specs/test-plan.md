@@ -60,10 +60,19 @@ Dùng đúng 5 câu hỏi mẫu trong tài liệu gốc:
 | 3 | `in_scope()` nhận đúng câu hỏi domain mới (vd. "Hôm nay có vụ ẩu đả nào không?") | Trả `True` — verify `STAT_KEYWORDS` đã mở rộng đủ, không bị từ chối oan |
 | 4 | `get_connection()` với `dbname` ngoài 5 DB hợp lệ (2 cũ + 3 mới) | Raise `ValueError` ngay, không mở connection — giống test guardrail DB ở v1 |
 
-### Test guardrail an toàn (giống pattern v1, lặp lại cho 3 DB mới)
-- Role Postgres đọc-only mới tạo cho `smart_face`/`firesmoke`/`anomaly`:
-  verify SELECT chạy được, verify DELETE/UPDATE bị `ReadOnlySqlTransaction`
-  từ chối — chạy đúng thủ tục Phase 3 mục "v1 — đã xong" cho từng DB mới.
+### Test guardrail an toàn (2 lớp — KHÁC cơ chế nhau, đừng lẫn lộn)
+- **Lớp Postgres/GRANT** (verify được NGAY sau khi tạo role — không cần
+  đợi Phase 3): connect trực tiếp bằng `psycopg2.connect()` (KHÔNG qua
+  `get_connection()`, vì whitelist DB trong code chưa có 3 DB mới) tới
+  từng DB `smart_face`/`firesmoke`/`anomaly` bằng `agent_readonly` — verify
+  SELECT chạy được, verify DELETE/UPDATE bị từ chối với
+  **`InsufficientPrivilege`** (KHÔNG phải `ReadOnlySqlTransaction` — lỗi
+  đó chỉ xảy ra qua `conn.set_session(readonly=True)` trong
+  `get_connection()`, tầng app chưa hỗ trợ 3 DB này).
+- **Lớp app/session-readonly** (chỉ verify được SAU Phase 3, khi
+  `get_connection()` đã mở whitelist cho 3 DB mới): gọi qua
+  `get_connection()` thật rồi thử DELETE/UPDATE — lúc đó mới đúng kỳ vọng
+  `ReadOnlySqlTransaction`, giống pattern v1 (`its`/`virtual_fence`).
 - Lớp code (`get_connection()`) chặn `dbname` lạ NGAY, không phụ thuộc
   hoàn toàn vào quyền Postgres — verify lại sau khi mở rộng whitelist
   (đảm bảo mở rộng đúng 3 DB mới, không vô tình mở rộng quá tay).

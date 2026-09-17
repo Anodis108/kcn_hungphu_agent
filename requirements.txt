@@ -7,4 +7,5 @@ langchain-core
 langchain-openai
 openai
 psycopg2-binary
+langfuse
 pytest

@@ -132,6 +132,70 @@ def zone_intrusion_by_hour(date_from: str, date_to: str, zone_code: str = "") ->
     return _wrap_dict("zone_intrusion_by_hour", data)
 
 
+@tool
+def count_face_events(
+    date_from: str,
+    date_to: str,
+    direction: str = "",
+    group_by: str = "direction",
+) -> str:
+    """Đếm lượt nhận diện khuôn mặt trong khoảng thời gian [date_from, date_to).
+    group_by: 1+ cột trong {direction, department_name}, phân cách bằng dấu
+    phẩy (mặc định "direction"). direction tuỳ chọn, chỉ nhận IN/OUT.
+    date_from/date_to định dạng 'YYYY-MM-DD HH:MM:SS'."""
+    if not settings.db_configured:
+        return _not_configured("count_face_events")
+    from src.db.queries import count_face_events as query
+
+    data = query(date_from, date_to, direction or None, group_by)
+    return _wrap_dict("count_face_events", data)
+
+
+@tool
+def count_fire_smoke_events(date_from: str, date_to: str, entity_type: str = "") -> str:
+    """Đếm cảnh báo cháy/khói trong khoảng thời gian [date_from, date_to).
+    entity_type tuỳ chọn, chỉ nhận FIRE (cháy) hoặc SMOKE (khói) — để trống
+    để lấy cả 2. date_from/date_to định dạng 'YYYY-MM-DD HH:MM:SS'.
+    LƯU Ý: nguồn dữ liệu này hiện CHƯA có bất kỳ cảnh báo nào được ghi nhận
+    (row_count=0 là dữ liệu THẬT, không phải lỗi tool/kết nối) — nếu kết quả
+    rỗng, trả lời đúng là "không có dữ liệu", KHÔNG được bịa ra 1 cảnh báo."""
+    if not settings.db_configured:
+        return _not_configured("count_fire_smoke_events")
+    from src.db.queries import count_fire_smoke_events as query
+
+    data = query(date_from, date_to, entity_type or None)
+    return _wrap_dict("count_fire_smoke_events", data)
+
+
+@tool
+def count_anomaly_events(
+    date_from: str,
+    date_to: str,
+    event_type: str,
+    group_by: str = "",
+) -> str:
+    """Đếm sự kiện bất thường trong khoảng thời gian [date_from, date_to) —
+    DÙNG CHUNG cho 4 loại sự kiện, event_type BẮT BUỘC và CHỈ được nhận
+    ĐÚNG 1 trong 4 giá trị sau (không được tự bịa giá trị khác):
+      - "FIGHT_DETECTION"      — ẩu đả
+      - "CROWD_DETECTION"      — đám đông
+      - "INTRUSION_DETECTION"  — leo trèo (KHÁC "vùng cấm"/xâm nhập hàng
+        rào ảo — câu hỏi về vùng cấm/hàng rào ảo phải dùng
+        zone_intrusion_by_hour, KHÔNG dùng tool này)
+      - "WATER_LEVEL_DETECTION" — mực nước vượt ngưỡng cảnh báo
+    Để so sánh nhiều loại sự kiện, gọi tool này NHIỀU LẦN (mỗi lần 1
+    event_type) rồi tự tổng hợp — KHÔNG được gộp nhiều event_type vào 1
+    lần gọi. group_by tuỳ chọn, 1+ cột trong {severity, zone_name}, để
+    trống chỉ lấy tổng số lượt. date_from/date_to định dạng
+    'YYYY-MM-DD HH:MM:SS'."""
+    if not settings.db_configured:
+        return _not_configured("count_anomaly_events")
+    from src.db.queries import count_anomaly_events as query
+
+    data = query(date_from, date_to, event_type, group_by or None)
+    return _wrap_dict("count_anomaly_events", data)
+
+
 _WRITE_KEYWORDS = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|pragma|replace|truncate)\b",
     re.IGNORECASE,
@@ -186,5 +250,8 @@ TOOLS = [
     count_vehicle_flow,
     trace_plate,
     zone_intrusion_by_hour,
+    count_face_events,
+    count_fire_smoke_events,
+    count_anomaly_events,
     run_sql_readonly,
 ]

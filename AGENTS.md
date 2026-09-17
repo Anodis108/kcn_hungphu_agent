@@ -1,21 +1,28 @@
 # AGENTS.md
 
-Project này tuân theo spec-driven development đơn giản.
+Project này tuân theo simple spec-driven development.
 
-## Rules
+## Nguyên tắc chính
+Luôn đọc các file trong `/specs` trước khi code.
 
-1. **Luôn đọc `/specs` trước khi code** — đặc biệt `implementation-plan.md`
-   (từ Phase 2 trở đi có ghi vài giả định CHƯA verify, vd. DB host dùng
-   chung, quyền role Postgres — nếu code thực tế cho thấy giả định sai,
-   dừng lại và cập nhật spec trước, không âm thầm đổi hướng).
-2. **Chỉ triển khai 1 phase hoặc 1 task tại 1 thời điểm** — không gộp
-   nhiều phase/task vào cùng 1 lượt.
-3. **Giữ app đơn giản** — không over-engineer, không thêm feature/tham số
-   ngoài yêu cầu của task đang làm.
-4. **Không thêm thư viện mới nếu chưa thực sự cần.**
-5. **Không đổi kiến trúc trừ khi spec đã được cập nhật trước** —
-   `specs/product-spec.md`/`specs/implementation-plan.md` phải phản ánh
-   thay đổi TRƯỚC khi code theo hướng đó.
-6. **Sau mỗi lần triển khai, cập nhật `specs/change-log.md`.**
-7. **Sau mỗi lần triển khai, giải thích cách test thay đổi** — lệnh chạy
-   app, các bước test thủ công, issue đã biết (nếu có).
+## Workflow
+Với mỗi task:
+1. Đọc các file spec liên quan.
+2. Chỉ triển khai một task hoặc một phase tại một thời điểm.
+3. Giữ giải pháp đơn giản.
+4. Tránh thêm thư viện không cần thiết.
+5. Không thay đổi architecture trừ khi spec được cập nhật.
+6. Sau khi triển khai, cập nhật `specs/change-log.md`.
+7. Giải thích cách test thay đổi.
+
+## Coding Style
+- Ưu tiên code đơn giản, dễ đọc.
+- Không over-engineer.
+- Không thêm feature không liên quan.
+- Giữ thay đổi nhỏ và dễ review.
+
+## Testing
+Trước khi nói task đã hoàn thành, hãy cung cấp:
+- command để chạy app
+- các bước test thủ công
+- các issue đã biết nếu có
