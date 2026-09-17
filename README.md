@@ -9,6 +9,29 @@ thật), dùng **spec-driven development**. Xem:
 - [`specs/test-plan.md`](specs/test-plan.md) — cách test
 - [`specs/change-log.md`](specs/change-log.md) — lịch sử thay đổi
 - [`AGENTS.md`](AGENTS.md) — quy tắc cho coding agent khi triển khai
+- [`agent-canvas.md`](agent-canvas.md) — tổng hợp & phân tích Agent Canvas (harness VMS, model deploy, bên thứ 3)
+
+## Lộ trình mở rộng (v2 — CHƯA triển khai)
+
+Mọi mục `[ ]` trong [`specs/implementation-plan.md`](specs/implementation-plan.md)
+**chỉ mới ở specs, chưa có code** (xem `specs/change-log.md` mục
+2026-09-17). Phần "Kiến trúc"/"Cài đặt & chạy local" bên dưới mô tả đúng
+những gì ĐANG CHẠY THẬT (mục `v1 — đã xong` trong từng phase).
+
+- **Phase 2** — mở rộng agent trả lời đủ 8 loại sự kiện VMS (nhận diện
+  khuôn mặt, phương tiện, vùng cấm, ẩu đả, đám đông, leo trèo, cháy khói,
+  mực nước) thay vì chỉ xe/vùng cấm như hiện tại + golden dataset 30 case
+  phủ đủ 8 domain + eval runner.
+- **Phase 3, 5, 6** — hiện thực hoá domain mới (DB queries, tool, guardrail,
+  test) dựa trên Phase 2.
+- **Phase 4** — Langfuse tracing, self-host trên chính máy này.
+- **Phase 8** — demo Langfuse + demo golden dataset.
+- **Prompt Registry** (git-based, versioning + rollback qua file) chưa có
+  phase kế hoạch cụ thể — xem ghi chú cuối `implementation-plan.md`.
+
+Mục tiêu sản phẩm: [`specs/product-spec.md`](specs/product-spec.md). Bảng
+ánh xạ sự kiện → DB, giả định cần xác nhận, thiết kế tool/test:
+[`specs/implementation-plan.md`](specs/implementation-plan.md#phase-2-mở-rộng-5-domain-sự-kiện-vms-mới).
 
 ## Kiến trúc
 

@@ -1,5 +1,132 @@
 # Change Log
 
+> **Lưu ý đọc lịch sử:** `specs/implementation-plan.md` được rewrite lại
+> cấu trúc phase ngày 2026-09-17 (entry "Rewrite implementation-plan.md"
+> bên dưới). Mọi entry **trước** ngày đó nói "Phase N" là theo số phase
+> CŨ (v1: 1 Setup, 2 Config, 3 DB layer, 4 Agent, 5 Validation, 6 README).
+> Entry **từ/sau** ngày đó dùng số phase MỚI (xem đầu
+> `implementation-plan.md`) — 2 hệ số không tương thích 1-1, đừng suy ra
+> nội dung phase từ số thứ tự khi đọc entry cũ.
+
+## 2026-09-17 (Rewrite `implementation-plan.md` thành 8 phase nhỏ)
+
+### Changed
+- `specs/implementation-plan.md` — viết lại toàn bộ theo đúng 8 phase
+  user yêu cầu: 1 Project setup, 2 Mở rộng 5 domain sự kiện VMS mới,
+  3 Core backend/data logic, 4 Core Observability (Langfuse), 5 Connect UI
+  to data, 6 Validation and error states, 7 Local run instructions,
+  8 Local demo setup. Mỗi phase có mục "v1 — đã xong" (`[x]`, không đổi
+  nội dung, chỉ sắp xếp lại vị trí) và "v2 — chưa code" (`[ ]`).
+- Số phase ĐỔI so với bản trước: domain sự kiện mới (cũ Phase 7) → Phase 2;
+  Langfuse (cũ Phase 8) → Phase 4. Cập nhật cross-reference ở `AGENTS.md`,
+  `specs/product-spec.md`, `specs/test-plan.md`, `README.md` cho khớp.
+
+### Quyết định phạm vi — Prompt Registry bị bỏ khỏi 8 phase
+- Yêu cầu rewrite lần này liệt kê ĐÚNG 8 phase, không nhắc Prompt Registry
+  (cũ Phase 9). Không tự ý nhét Prompt Registry vào 1 trong 8 phase trên
+  (có thể sai ý định user) — thay vào đó giữ nguyên nội dung kỹ thuật đã
+  viết trước đó (`prompts/<name>/vN.yaml` + `production.txt` alias +
+  `PromptRegistry.get()/render()`) nhưng chuyển xuống 1 mục "Ghi chú" cuối
+  `implementation-plan.md`, đánh dấu rõ CHƯA có phase. `product-spec.md`
+  vẫn liệt kê Prompt Registry ở "Features In Scope" — có mismatch tạm thời
+  giữa 2 file, đã ghi chú tường minh ở cả 2 nơi thay vì để mismatch ngầm.
+- Cần hỏi lại user ở lượt sau: giữ Prompt Registry làm 1 phase riêng
+  (Phase 9) hay bỏ hẳn khỏi kế hoạch hiện tại.
+
+### Verified
+- Grep lại toàn bộ `README.md`/`AGENTS.md`/`specs/*.md` sau khi đổi số
+  phase — không còn chỗ nào trỏ "Phase 7/8/9" (số cũ) vào nội dung mới.
+
+## 2026-09-17 (Review: đơn giản hoá `product-spec.md`)
+
+### Changed
+- `specs/product-spec.md` — viết lại gọn hơn theo yêu cầu review "keep it
+  simple, đảm bảo rõ 6 mục: goal/target users/core user flow/features in
+  scope/features out of scope/acceptance criteria". Chuyển 2 phần chi tiết
+  kỹ thuật (bảng ánh xạ sự kiện → DB.table, và các giả định chưa verify)
+  sang `specs/implementation-plan.md` mục Phase 7 — đây là nội dung phục
+  vụ lúc CODE Phase 7, không phải mục tiêu sản phẩm nên không cần nằm ở
+  product-spec. Product-spec giờ chỉ còn 8 dòng liệt kê tên sự kiện (mục
+  Goal) + 1 câu trỏ sang implementation-plan cho chi tiết.
+- `specs/implementation-plan.md` (Phase 7) — nhận lại bảng ánh xạ + giả
+  định + bảng phân bổ 30 case (trước nằm ở product-spec) ngay tại chỗ dùng
+  đến chúng (đầu Phase 7, trước checklist).
+- `AGENTS.md` — sửa link trỏ giả định Phase 7 từ `product-spec.md` sang
+  `implementation-plan.md` (theo đúng vị trí mới).
+- Không đổi nội dung/kết luận nào đã tra cứu ở lượt trước — chỉ di chuyển
+  vị trí trong doc, không code nào bị đụng tới.
+
+### Review
+- **Pass:** `specs/product-spec.md` giờ đọc hết trong ~2 phút, đủ 6 mục
+  yêu cầu, không còn bảng kỹ thuật/self-review lấn vào giữa các mục.
+- Grep xác nhận không còn tham chiếu treo tới 2 mục đã xoá khỏi
+  product-spec (`Giả định & câu hỏi mở`, `Bảng ánh xạ sự kiện`) — đã sửa
+  3 chỗ trỏ sai (`AGENTS.md`, `implementation-plan.md` 2 chỗ).
+
+## 2026-09-17 (Spec-only: mở rộng phạm vi v2 — CHƯA CODE)
+
+### Added (chỉ specs/docs, không có thay đổi code theo đúng yêu cầu)
+- `specs/product-spec.md` — mở rộng "Goal"/"Features In Scope"/"Features
+  Out of Scope"/"Acceptance Criteria" từ phạm vi v1 (xe ra/vào + xâm nhập
+  vùng cấm) lên v2 (8 loại sự kiện VMS: FACE, PLATE, ZONE, ẩu đả, đám đông,
+  leo trèo, FIRE, mực nước) + 2 hạ tầng mới (Langfuse tracing self-host,
+  Prompt Registry git-based). Thêm mục "Giả định & câu hỏi mở" và bảng ánh
+  xạ sự kiện → DB.table.
+- `specs/implementation-plan.md` — thêm Phase 7 (mở rộng 5 domain sự kiện
+  mới + golden dataset v2 + eval runner), Phase 8 (Langfuse tracing), Phase
+  9 (Prompt Registry). Tất cả item đang `[ ]` (chưa làm) — Phase 1-6 (v1)
+  giữ nguyên `[x]`, không sửa.
+- `specs/test-plan.md` — thêm test plan cho Phase 7-9 (test offline, test
+  guardrail an toàn cho 3 DB mới, test thật theo domain, test golden
+  dataset v2, test tracing, test prompt registry).
+- `README.md` — thêm mục "Lộ trình mở rộng (v2, Phase 7-9)" trỏ tới các
+  spec ở trên, ghi rõ CHƯA triển khai.
+
+### Grounding (quan trọng — không suy đoán phạm vi sự kiện mới)
+Trước khi viết spec, đã tra cứu trực tiếp trong monorepo
+`/home/atin/dong/dong/KCNHungPhu` (không phải trong `kcn_hungphu_agent`) để
+xác nhận 8 loại sự kiện người dùng liệt kê đều có nguồn dữ liệu Postgres
+thật, tránh spec ra tính năng không có data backing:
+- `kcn/crowd/KCN_HUNGPHU_MQTT_AI_EVENTS.md` — payload MQTT edge→BE thật,
+  liệt kê DB đích cho từng `ai_modules` (FACE→`smart_face.smf_face_events`,
+  PLATE→`its.plate_event`, ZONE→`virtual_fence.zone_event`,
+  FIRE→`firesmoke.fire_smoke_event`, và nhóm ANOMALY gồm
+  FIGHT_DETECTION/CROWD_DETECTION/INTRUSION_DETECTION (leo trèo)/
+  FALL_DETECTION/SMOKING_DETECTION/WEAPON_DETECTION).
+- `agent-harness/services/vms-sync/sources.py` — code sync Postgres→
+  ClickHouse ĐANG CHẠY THẬT trong harness khác cùng máy, xác nhận chính
+  xác tên cột từng bảng (dùng để viết `SELECT` mẫu trong
+  `implementation-plan.md` Phase 7).
+- `agent-harness/skills/vms-analytics.md` — xác nhận "giám sát mực nước"
+  KHÔNG có bảng riêng, mà là `event_type=WATER_LEVEL_DETECTION` trong CHUNG
+  bảng `anomaly.anomaly_event` với ẩu đả/đám đông/leo trèo — quyết định
+  thiết kế "1 tool `count_anomaly_events` dùng chung, `event_type` là
+  tham số" trong Phase 7 xuất phát trực tiếp từ phát hiện này (không phải
+  chọn tuỳ ý để đơn giản hoá).
+- **Không tìm thấy** pipeline/bảng "mực nước" độc lập nào trong repo — ban
+  đầu nghi ngờ đây là domain thiếu data, nhưng tra thêm `vms-analytics.md`
+  mới xác nhận nó nằm trong `anomaly_event` (không phải domain rời).
+
+### Review vs yêu cầu user
+- **Pass:** đủ 6 file được yêu cầu (`README.md`, `AGENTS.md`,
+  `specs/product-spec.md`, `specs/implementation-plan.md`,
+  `specs/test-plan.md`, `specs/change-log.md`).
+- **Quyết định phạm vi (không phải bug):** yêu cầu gốc có nhắc trực tiếp
+  "update `eval/datasets/agent_stat` cho tôi" — NHƯNG dòng cuối yêu cầu ghi
+  rõ "Do not implement the app yet" và "Before writing any code, create or
+  update these files: [6 file trên]". Hiểu đây là 2 chỉ dẫn ở 2 tầng khác
+  nhau: tầng "mô tả app idea" (4 gạch đầu dòng, có nhắc golden dataset/
+  Langfuse/Prompt Registry) là NGỮ CẢNH cho việc viết spec, còn tầng "việc
+  cần làm ngay" chỉ giới hạn ở 6 file docs. Vì vậy: viết CHI TIẾT kế hoạch
+  golden dataset v2 (bảng phân bổ 30 case/8 domain) trong
+  `implementation-plan.md`, nhưng CHƯA tạo file
+  `eval/datasets/agent_stat/v2.yaml` thật — đúng theo nghĩa đen của "Do not
+  implement the app yet". Nếu hiểu sai ý định này, việc tạo file YAML thật
+  ở Phase 7 chỉ mất thêm 1 bước nhỏ vì đã có sẵn bảng phân bổ + quy ước.
+- **Không đổi code:** không file nào trong `src/`, `eval/datasets/`,
+  `tests/`, `.env.example`, `requirements.txt` bị sửa ở lượt này — đúng
+  yêu cầu "Do not implement the app yet".
+
 ## 2026-09-16 (Phase 6: `README.md` — hoàn thiện, gồm cả mục ngrok)
 
 ### Added

@@ -47,3 +47,63 @@ Dùng đúng 5 câu hỏi mẫu trong tài liệu gốc:
 - Test UI tự động (chấp nhận test tay qua trình duyệt).
 - Test độ chính xác của LLM diễn giải câu trả lời (chỉ cần không hallucinate
   số liệu ngoài dữ liệu tool trả về — guardrail output đã che phần này).
+
+---
+
+## Test domain sự kiện VMS mới (Phase 2/3/5/6 trong implementation-plan.md — chưa code, ghi kế hoạch trước)
+
+### Test offline (không cần Postgres/API key thật)
+| # | Test | Kỳ vọng |
+|---|---|---|
+| 1 | `count_anomaly_events(event_type="LOI_BIA")` (event_type ngoài whitelist) | Trả `error` rõ ràng, không query DB — giống cách `run_sql_readonly` validate bảng ở v1 |
+| 2 | Danh sách tool mới đúng như thiết kế (`count_face_events`, `count_fire_smoke_events`, `count_anomaly_events`) | Assertion tên tool khớp `product-spec.md` |
+| 3 | `in_scope()` nhận đúng câu hỏi domain mới (vd. "Hôm nay có vụ ẩu đả nào không?") | Trả `True` — verify `STAT_KEYWORDS` đã mở rộng đủ, không bị từ chối oan |
+| 4 | `get_connection()` với `dbname` ngoài 5 DB hợp lệ (2 cũ + 3 mới) | Raise `ValueError` ngay, không mở connection — giống test guardrail DB ở v1 |
+
+### Test guardrail an toàn (giống pattern v1, lặp lại cho 3 DB mới)
+- Role Postgres đọc-only mới tạo cho `smart_face`/`firesmoke`/`anomaly`:
+  verify SELECT chạy được, verify DELETE/UPDATE bị `ReadOnlySqlTransaction`
+  từ chối — chạy đúng thủ tục Phase 3 mục "v1 — đã xong" cho từng DB mới.
+- Lớp code (`get_connection()`) chặn `dbname` lạ NGAY, không phụ thuộc
+  hoàn toàn vào quyền Postgres — verify lại sau khi mở rộng whitelist
+  (đảm bảo mở rộng đúng 3 DB mới, không vô tình mở rộng quá tay).
+
+### Test thật (chạy tay, cần `.env` đủ 5 DB + role read-only)
+Tối thiểu 1 câu hỏi mẫu / domain mới (8 domain − 3 đã test ở v1 = 5 domain
+cần câu hỏi mới):
+
+| # | Câu hỏi | Acceptance |
+|---|---|---|
+| 1 | "Hôm nay có bao nhiêu lượt nhận diện khuôn mặt?" | Số liệu thật từ `smart_face.smf_face_events`, khớp `rows` |
+| 2 | "Hôm nay có vụ ẩu đả nào không?" | Đúng `count_anomaly_events(event_type=FIGHT_DETECTION)`, không nhầm sang domain khác |
+| 3 | "Hôm nay có cảnh báo đám đông ở khu vực nào không?" | Đúng `event_type=CROWD_DETECTION` |
+| 4 | "Hôm nay có phát hiện leo trèo không?" | Đúng `event_type=INTRUSION_DETECTION` trên `anomaly.anomaly_event` — KHÔNG bị nhầm với `zone_intrusion_by_hour` (vùng cấm, bảng khác) |
+| 5 | "Hôm nay có cảnh báo cháy hoặc khói không?" | Đúng `firesmoke.fire_smoke_event`, phân biệt được `entity_type` FIRE/SMOKE |
+| 6 | "Mực nước hôm nay có vượt ngưỡng cảnh báo không?" | Đúng `event_type=WATER_LEVEL_DETECTION`, đọc được `payload.water_level`/`warning_threshold` |
+
+### Test golden dataset v2 (30 case)
+- `eval/run.py` chạy hết 30 case trong `eval/datasets/agent_stat/v2.yaml`
+  → in được tỷ lệ pass/fail theo `slice.type` (lookup/comparison/
+  out_of_scope/injection).
+- So với v1: 3 case `out_of_scope` + 3 case `injection` PHẢI vẫn pass
+  nguyên (không regression khi mở rộng `STAT_KEYWORDS`/tool) — đây là tín
+  hiệu regression rõ nhất nếu mở rộng guardrail sai cách.
+
+## Test Langfuse tracing (Phase 4/5/6 trong implementation-plan.md)
+
+| # | Test | Kỳ vọng |
+|---|---|---|
+| 1 | `MONITORING_ENABLED=false` (mặc định), chạy `pytest -v` | Kết quả y hệt trước khi thêm tracing (không cần Langfuse chạy, không import lỗi nếu thiếu package) |
+| 2 | `MONITORING_ENABLED=true`, Langfuse self-host đang chạy, gọi `POST /ask` thật | Trace xuất hiện trong Langfuse UI với input/output/latency; có span con cho bước chọn tool + bước diễn giải |
+| 3 | Kiểm tra nội dung trace không lộ secret | Không thấy `OPENAI_API_KEYS`/`DB_PASSWORD` trong bất kỳ trường nào của trace (input/output/metadata) |
+| 4 | `MONITORING_ENABLED=true` nhưng Langfuse service down | `/ask` vẫn trả lời bình thường (không crash vì lỗi kết nối Langfuse) — verify lỗi trace bị nuốt/log, không raise lên response |
+
+## Test Prompt Registry (chưa có phase kế hoạch cụ thể — xem ghi chú cuối implementation-plan.md)
+
+| # | Test | Kỳ vọng |
+|---|---|---|
+| 1 | `PromptRegistry.get("answer", version=1)` | Trả đúng nội dung `prompts/answer/v1.yaml` |
+| 2 | `PromptRegistry.render("answer", version="production", question=..., context=...)` thiếu 1 biến bắt buộc | Raise lỗi rõ ràng ("Thiếu biến khi render prompt"), không âm thầm render thiếu |
+| 3 | Đổi `prompts/answer/production.txt` từ `"1"` sang `"2"` (không sửa code) | `run_agent()`/`build_answer()` dùng ngay nội dung v2 ở lượt gọi tiếp theo |
+| 4 | Revert `production.txt` về `"1"` | Hành vi quay lại y hệt trước khi đổi — xác nhận rollback = revert 1 file |
+| 5 | `pytest` offline trong suốt quá trình thêm registry | Vẫn chạy sạch — registry đọc file tĩnh, không phụ thuộc LLM/DB thật khi ở chế độ offline |
