@@ -1,117 +1,97 @@
-# Test Plan
+# Test Plan (agent_stat_v3 FE & AI_Backend)
 
-## Nguyên tắc
-- Test offline (không cần API key/DB thật) chạy được bằng `pytest`, dùng
-  cho CI/mọi máy dev.
-- Test thật (cần `.env` có DB Postgres + LLM key) chạy tay, dùng để xác nhận
-  5 câu hỏi mẫu trong "Ý tưởng Agent.docx" trả lời đúng số liệu thật.
-
-## Test offline (pytest, không cần Postgres/API key)
-
-| # | Test | Kỳ vọng |
-|---|---|---|
-| 1 | Guardrail chặn prompt injection ("Ignore previous instructions...") | Raise lỗi rõ ràng, không gọi agent |
-| 2 | Guardrail chặn câu hỏi ngoài phạm vi ("Thời tiết Hà Nội thế nào?") | Trả lời từ chối lịch sự, không lỗi 500 |
-| 3 | Câu hỏi hợp lệ chạy offline (không có API key) | Trả về answer khác rỗng, không crash |
-| 4 | Tool SQL đọc-only chặn câu lệnh ghi (DELETE/UPDATE/DROP) | Trả lỗi rõ ràng, không thực thi |
-| 5 | Danh sách tool đúng như thiết kế (đủ tool cần, không thiếu) | Assertion tên tool khớp |
-
-## Test thật (chạy tay, cần `.env` đầy đủ)
-
-Dùng đúng 5 câu hỏi mẫu trong tài liệu gốc:
-
-| # | Câu hỏi | Acceptance |
-|---|---|---|
-| 1 | "Biểu đồ hôm nay có bao nhiêu lượt xe ra và vào, phân loại theo xe máy, ô tô" | Trả lời có số liệu cho cả 2 loại xe, khớp dữ liệu thô trả về |
-| 2 | "Biểu đồ thống kê hôm nay có bao nhiêu lượt ra vào, phân loại xe máy/tải/5,7,9,16,29,40 chỗ" | Trả lời phân loại đúng theo `vehicle_type` có trong DB (BUS/CAR/MOTORCYCLE/TRUCK — lưu ý DB thật không phân theo số chỗ ngồi, cần nêu rõ giới hạn này trong câu trả lời hoặc README) |
-| 3 | "Số liệu ô tô theo hãng xe trong hôm nay" | Trả lời liệt kê hãng xe + số lượt, khớp `manufacturer` trong DB |
-| 4 | "Truy vết, lịch sử di chuyển của phương tiện có biển số XXXX" | Trả lời đúng camera/thời điểm/chiều ra-vào của biển số đó (thay XXXX bằng biển số có thật trong DB khi test) |
-| 5 | "Khung thời gian xảy ra xâm nhập nhiều nhất ngày hôm nay" | Trả lời đúng khung giờ có số lượt cao nhất, khớp dữ liệu `zone_event` |
-
-## Test guardrail an toàn (chạy tay hoặc pytest)
-- Role DB dùng để kết nối KHÔNG có quyền ghi (verify bằng thử `DELETE`/`UPDATE`
-  trực tiếp qua `src/db/connection.py::get_connection()`, phải bị Postgres
-  từ chối — `ReadOnlySqlTransaction`).
-- 2 lớp phòng thủ độc lập chặn đọc dữ liệu ngoài phạm vi — verify cả 2:
-  - **Lớp code** (`get_connection()`): gọi với `dbname` không phải
-    `its`/`virtual_fence` (vd. `"vms_db"`) phải raise `ValueError` NGAY,
-    không mở connection thật.
-  - **Lớp Postgres** (role `agent_readonly`, dự phòng nếu lớp code bị bỏ
-    qua/lỗi): test bằng `psycopg2.connect()` trực tiếp (KHÔNG qua
-    `get_connection()`) vào 1 DB khác — CONNECT vẫn qua (PUBLIC CONNECT mặc
-    định của cluster) nhưng SELECT phải bị từ chối
-    (`InsufficientPrivilege`).
-
-## Không cần test ở MVP này
-- Load test / nhiều người dùng đồng thời.
-- Test UI tự động (chấp nhận test tay qua trình duyệt).
-- Test độ chính xác của LLM diễn giải câu trả lời (chỉ cần không hallucinate
-  số liệu ngoài dữ liệu tool trả về — guardrail output đã che phần này).
+Kế hoạch kiểm thử toàn diện cho hệ thống: Phân tách Frontend & AI_Backend, giữ nguyên kiến trúc ReAct Agent hiện tại, điều phối bằng Docker Compose, nâng cấp Langfuse output + token metrics, hỗ trợ Model tự host Qwen3-4B và giao diện Claude UI.
 
 ---
 
-## Test domain sự kiện VMS mới (Phase 2/3/5/6 trong implementation-plan.md)
+## 1. Nguyên Tắc Kiểm Thử
+- **Test Offline (`pytest`)**: Không cần kết nối Postgres hay LLM API thật; có thể chạy độc lập ở môi trường local/CI, kiểm tra cấu trúc ReAct graph, guardrails và mock client.
+- **Test Thật (Live E2E)**: Cần kết nối tới Postgres VMS và LLM backend (OpenAI hoặc Self-hosted Qwen3-4B), kiểm tra luồng hỏi-đáp thực tế và độ chính xác số liệu trên cả 8 domain.
+- **Test Observability**: Kiểm tra việc ghi nhận trace trên Langfuse (đủ output, token usage, độ trễ) và đăng nhập với mật khẩu `Atin@123#`.
+- **Test Container hóa**: Kiểm tra khả năng khởi động đồng bộ và liên lạc giữa các service qua `docker compose up -d`.
 
-### Test offline (không cần Postgres/API key thật) — đã có trong `tests/test_offline.py`
-| # | Test | Kỳ vọng |
+---
+
+## 2. Test Offline (Pytest)
+
+| # | Test Case | Kỳ vọng |
 |---|---|---|
-| 1 | `count_anomaly_events(event_type="LOI_BIA")` (event_type ngoài whitelist) | Trả `error` rõ ràng, không query DB — giống cách `run_sql_readonly` validate bảng ở v1 |
-| 2 | Danh sách tool mới đúng như thiết kế (`count_face_events`, `count_fire_smoke_events`, `count_anomaly_events`) | Assertion tên tool khớp `product-spec.md` |
-| 3 | `in_scope()` nhận đúng câu hỏi domain mới (vd. "Hôm nay có vụ ẩu đả nào không?") | Trả `True` — verify `STAT_KEYWORDS` đã mở rộng đủ, không bị từ chối oan |
-| 4 | `get_connection()` với `dbname` ngoài 5 DB hợp lệ (2 cũ + 3 mới) | Raise `ValueError` ngay, không mở connection — giống test guardrail DB ở v1 |
+| 1 | **Guardrail Input — Prompt Injection** | Câu hỏi độc hại ("Ignore instructions...") bị chặn ngay tại backend, trả lỗi HTTP 400 rõ ràng, không gọi agent |
+| 2 | **Guardrail Input — Ngoài phạm vi** | Câu hỏi thời tiết, nấu ăn... bị từ chối lịch sự, không gọi DB |
+| 3 | **Agent ReAct Offline** | Câu hỏi hợp lệ chạy offline không crash, trả về kết quả hợp lệ |
+| 4 | **Tool Whitelist & Read-only** | Tool SQL chặn tuyệt đối câu lệnh ghi (`DELETE`, `UPDATE`, `DROP`); tham số ngoài whitelist bị từ chối |
+| 5 | **Prompt Registry Integration** | `PromptRegistry` đọc đúng file YAML, render đúng biến và báo lỗi `ValueError` nếu thiếu biến |
+| 6 | **Tracing No-op Offline** | Khi `MONITORING_ENABLED=false`, các hàm tracing hoạt động bình thường như no-op, không phát sinh lỗi |
+| 7 | **Backend Endpoints** | `/api/health` và `/api/models` trả về `200 OK` với danh sách model chính xác |
 
-### Test guardrail an toàn (2 lớp — KHÁC cơ chế nhau, đừng lẫn lộn)
+---
 
-Đã có pytest tái chạy được: `tests/test_db_guardrail_new_dbs.py`
-(skip nếu chưa có `.env` DB).
+## 3. Test Thật: LLM Tự Host (`qwen3-4b`) vs OpenAI
 
-- **Lớp Postgres/GRANT**: connect trực tiếp bằng `psycopg2.connect()`
-  (KHÔNG qua `get_connection()`, không `set_session(readonly=True)`) tới
-  từng DB `smart_face`/`firesmoke`/`anomaly` bằng role read-only — SELECT
-  chạy được; DELETE bị từ chối với **`InsufficientPrivilege`**.
-- **Lớp app/session-readonly**: gọi qua `get_connection()` rồi thử
-  DELETE/UPDATE — kỳ vọng **`ReadOnlySqlTransaction`** (do
-  `conn.set_session(readonly=True)`), giống pattern v1
-  (`its`/`virtual_fence`).
-- Lớp code (`get_connection()`) chặn `dbname` lạ NGAY — đã cover offline
-  trong `tests/test_offline.py::test_get_connection_chan_dbname_ngoai_whitelist`.
+Kiểm thử khả năng tương thích và phản hồi trên cả 2 backend LLM:
 
-### Test thật (chạy tay, cần `.env` đủ 5 DB + role read-only)
-Tối thiểu 1 câu hỏi mẫu / domain mới (8 domain − 3 đã test ở v1 = 5 domain
-cần câu hỏi mới):
+| # | Backend | Endpoint / Model | Tiêu chí Đạt (Acceptance) |
+|---|---|---|---|
+| 1 | **Self-hosted LLM** | `http://192.168.1.196:18083/v1`<br>Model: `qwen3-4b` | Khởi tạo client thành công qua `MODEL_API_KEY`, gọi `chat/completions` sinh câu trả lời tiếng Việt chính xác theo số liệu thật |
+| 2 | **OpenAI Cloud** | `https://api.openai.com/v1`<br>Model: `gpt-4o-mini` | Hoạt động bình thường với key rotation khi gặp rate-limit |
+| 3 | **Chuyển đổi Backend** | Thay đổi qua biến `.env` hoặc UI | Hệ thống chuyển đổi ngay lập tức mà không cần sửa code logic |
 
-| # | Câu hỏi | Acceptance |
+---
+
+## 4. Test Langfuse Observability & Token Usage
+
+Kiểm tra trực tiếp trên hạ tầng Langfuse self-hosted:
+
+| # | Mục Kiểm Tra | Thao Tác & Dữ Liệu | Tiêu chí Đạt |
+|---|---|---|---|
+| 1 | **Đăng nhập Quản trị** | Truy cập `http://localhost:3000`<br>User: `admin@agent-atin.local`<br>Password: `Atin@123#` | Đăng nhập thành công vào Dashboard dự án `agent_ATIN` |
+| 2 | **Lưu trữ Đầy đủ Output** | Gửi 1 câu hỏi qua API → Mở trace trên Langfuse | Cả trace cha (`ask`/`chat`) và các span con (`chon_tool`, `chay_tool`, `dien_giai`) đều hiển thị trường `output` đầy đủ |
+| 3 | **Token Usage Metrics** | Kiểm tra chi tiết observation thế hệ LLM | Có đầy đủ thông số: `prompt_tokens > 0`, `completion_tokens > 0`, `total_tokens = prompt + completion` |
+| 4 | **Model & Latency Info** | Kiểm tra trường metadata của trace | Hiển thị chính xác tên model (`gpt-4o-mini` hoặc `qwen3-4b`), `latency_s` đo thời gian thực thi |
+| 5 | **Bảo mật Secret** | Rà soát toàn bộ payload của trace | Tuyệt đối **không xuất hiện** API keys thật (`sk-proj-...`, `lgw_...`) hay mật khẩu DB |
+| 6 | **Khả năng Chịu lỗi (Resilience)** | Tắt tạm thời container Langfuse rồi gửi câu hỏi | API vẫn trả lời câu hỏi bình thường, không crash hệ thống (lỗi tracing được tự động bắt và log) |
+
+---
+
+## 5. Test Giao Diện Frontend (Claude-Inspired UI)
+
+| # | Tính Năng UI | Thao Tác | Tiêu chí Đạt |
+|---|---|---|---|
+| 1 | **Thẩm mỹ & Bố cục** | Mở trình duyệt tại `http://localhost:8080` (hoặc cổng FE) | Giao diện hiện đại phong cách Claude, tone màu ấm, typography rõ nét, responsive |
+| 2 | **Cấu hình Model** | Mở menu cấu hình model | Hiển thị danh sách model khả dụng, cho phép chuyển đổi giữa OpenAI và Self-hosted Qwen3-4B |
+| 3 | **Tool Execution Accordion** | Gửi câu hỏi thống kê | Hiển thị khối "Chi tiết công cụ đã thực thi" dạng accordion, cho phép thu gọn/mở rộng xem tool nào đã chạy |
+| 4 | **Markdown Rendering** | Câu trả lời có bảng số liệu và danh sách | Bảng biểu HTML/Markdown render ngay ngắn, dễ nhìn |
+| 5 | **Trạng thái Trực quan** | Khi hệ thống đang truy vấn | Hiển thị indicator đang xử lý / loading animation mượt mà |
+
+---
+
+## 6. Test Điều Phối Docker Compose
+
+| # | Lệnh / Kịch Bản | Tiêu chí Đạt |
 |---|---|---|
-| 1 | "Hôm nay có bao nhiêu lượt nhận diện khuôn mặt?" | Số liệu thật từ `smart_face.smf_face_events`, khớp `rows` |
-| 2 | "Hôm nay có vụ ẩu đả nào không?" | Đúng `count_anomaly_events(event_type=FIGHT_DETECTION)`, không nhầm sang domain khác |
-| 3 | "Hôm nay có cảnh báo đám đông ở khu vực nào không?" | Đúng `event_type=CROWD_DETECTION` |
-| 4 | "Hôm nay có phát hiện leo trèo không?" | Đúng `event_type=INTRUSION_DETECTION` trên `anomaly.anomaly_event` — KHÔNG bị nhầm với `zone_intrusion_by_hour` (vùng cấm, bảng khác) |
-| 5 | "Hôm nay có cảnh báo cháy hoặc khói không?" | Đúng `firesmoke.fire_smoke_event`, phân biệt được `entity_type` FIRE/SMOKE |
-| 6 | "Mực nước hôm nay có vượt ngưỡng cảnh báo không?" | Đúng `event_type=WATER_LEVEL_DETECTION`, đọc được `payload.water_level`/`warning_threshold` |
+| 1 | `docker compose up -d` | Cả 3 nhóm service (`frontend`, `ai_backend`, `langfuse` stack) khởi động `Up (healthy)` mà không có lỗi |
+| 2 | Kết nối nội bộ FE → AI_Backend | Nginx proxy hoặc fetch từ FE gọi thành công `http://ai_backend:8000/api/...` |
+| 3 | Kết nối AI_Backend → DB / LLM | Backend truy vấn được Postgres VMS và gọi được endpoint LLM (`http://192.168.1.196:18083/v1`) |
+| 4 | `docker compose down` | Dừng an toàn toàn bộ container, dữ liệu Langfuse Postgres / ClickHouse được giữ nguyên trong docker volume |
 
-### Test golden dataset v2 (30 case)
-- `eval/run.py` chạy hết 30 case trong `eval/datasets/agent_stat/v2.yaml`
-  → in được tỷ lệ pass/fail theo `slice.type` (lookup/comparison/
-  out_of_scope/injection).
-- So với v1: 3 case `out_of_scope` + 3 case `injection` PHẢI vẫn pass
-  nguyên (không regression khi mở rộng `STAT_KEYWORDS`/tool) — đây là tín
-  hiệu regression rõ nhất nếu mở rộng guardrail sai cách.
+---
 
-## Test Langfuse tracing (Phase 4/5/6 trong implementation-plan.md)
+## 7. Đánh Giá Golden Dataset (30 Case) trên 8 Domain VMS
 
-| # | Test | Kỳ vọng |
-|---|---|---|
-| 1 | `MONITORING_ENABLED=false` (mặc định), chạy `pytest -v` | Kết quả y hệt trước khi thêm tracing (không cần Langfuse chạy, không import lỗi nếu thiếu package) |
-| 2 | `MONITORING_ENABLED=true`, Langfuse self-host đang chạy, gọi `POST /ask` thật | Trace xuất hiện trong Langfuse UI với input/output/latency; có span con cho bước chọn tool + bước diễn giải |
-| 3 | Kiểm tra nội dung trace không lộ secret | Không thấy `OPENAI_API_KEYS`/`DB_PASSWORD` trong bất kỳ trường nào của trace (input/output/metadata) |
-| 4 | `MONITORING_ENABLED=true` nhưng Langfuse service down | `/ask` vẫn trả lời bình thường (không crash vì lỗi kết nối Langfuse) — verify lỗi trace bị nuốt/log, không raise lên response |
+Chạy bộ đánh giá chuẩn:
+```bash
+python3 eval/run.py
+```
+- **Kỳ vọng**: Đạt **30/30 passed (100%)** bao gồm cả 8 domain sự kiện VMS, 3 case prompt injection, và 3 case out_of_scope.
 
-## Test Prompt Registry (chưa có phase kế hoạch cụ thể — xem ghi chú cuối implementation-plan.md)
+---
 
-| # | Test | Kỳ vọng |
-|---|---|---|
-| 1 | `PromptRegistry.get("answer", version=1)` | Trả đúng nội dung `prompts/answer/v1.yaml` |
-| 2 | `PromptRegistry.render("answer", version="production", question=..., context=...)` thiếu 1 biến bắt buộc | Raise lỗi rõ ràng ("Thiếu biến khi render prompt"), không âm thầm render thiếu |
-| 3 | Đổi `prompts/answer/production.txt` từ `"1"` sang `"2"` (không sửa code) | `run_agent()`/`build_answer()` dùng ngay nội dung v2 ở lượt gọi tiếp theo |
-| 4 | Revert `production.txt` về `"1"` | Hành vi quay lại y hệt trước khi đổi — xác nhận rollback = revert 1 file |
-| 5 | `pytest` offline trong suốt quá trình thêm registry | Vẫn chạy sạch — registry đọc file tĩnh, không phụ thuộc LLM/DB thật khi ở chế độ offline |
+## 8. Xuất & Kiểm Tra Sơ Đồ Đồ Thị ReAct Graph
+
+Chạy lệnh xuất sơ đồ sau khi hoàn tất toàn bộ code:
+```bash
+python3 -m src.agent.graph
+```
+- **Kỳ vọng**:
+  - Tạo/cập nhật thành công tệp ảnh `graph.png` và tệp HTML trực quan `graph_diagram.html`.
+  - Sơ đồ phản ánh chính xác cấu trúc ReAct Graph: `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`.

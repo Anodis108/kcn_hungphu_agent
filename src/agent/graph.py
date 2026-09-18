@@ -150,33 +150,61 @@ def run_agent(inp: Agent_Input, parent_span: Any = None) -> Agent_Output:
 
 
 def save_graph_visualization(path: str = "graph.png") -> str:
-    """Xuất sơ đồ graph ra file — hữu ích để debug/trình bày cấu trúc ReAct
-    (seed → agent ⇄ tools → pack). Không phải business logic, chỉ dùng khi
-    cần xem lại cấu trúc graph, không gọi trong luồng chạy app.
-
-    Thử vẽ PNG trước (draw_mermaid_png — gọi API mermaid.ink, cần mạng). Nếu
-    không có mạng/lỗi, fallback ghi ra Mermaid text thuần (.mmd, không cần
-    mạng) — dán vào https://mermaid.live hoặc preview trực tiếp trong
-    VSCode/GitHub.
-
-    Returns:
-        Đường dẫn file thực sự đã ghi (có thể khác `path` nếu fallback sang .mmd).
+    """Xuất sơ đồ graph ra file PNG, Mermaid (.mmd) và HTML trực quan (.html) —
+    hữu ích để debug/trình bày cấu trúc ReAct (seed → agent ⇄ tools → pack).
     """
     graph = _build_graph().get_graph()
+    mermaid_code = graph.draw_mermaid()
 
+    # 1. Ghi tệp Mermaid text thuần (.mmd)
+    mmd_path = path.rsplit(".", 1)[0] + ".mmd"
+    with open(mmd_path, "w", encoding="utf-8") as f:
+        f.write(mermaid_code)
+
+    # 2. Ghi tệp HTML trực quan (.html)
+    html_path = path.rsplit(".", 1)[0] + "_diagram.html"
+    html_content = f"""<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Sơ đồ Đồ thị ReAct Agent — agent_ATIN</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <style>
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fbfbf9; padding: 1rem; }}
+    .card {{ background: #ffffff; padding: 2rem; border-radius: 12px; border: 1px solid #e5e4dc; box-shadow: 0 4px 12px rgba(0,0,0,0.06); max-width: 900px; width: 100%; text-align: center; }}
+    h2 {{ color: #1c1b18; margin-bottom: 0.5rem; }}
+    p {{ color: #636159; font-size: 0.95rem; margin-bottom: 1.5rem; }}
+    code {{ background: #f0eee6; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }}
+    .mermaid {{ margin: 1rem 0; display: flex; justify-content: center; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Sơ đồ Đồ thị ReAct Agent (LangGraph)</h2>
+    <p>Kiến trúc ReAct Agent: <code>START → seed → agent ⇄ tools → pack → END</code></p>
+    <div class="mermaid">
+{mermaid_code}
+    </div>
+  </div>
+  <script>mermaid.initialize({{startOnLoad:true, theme: 'neutral'}});</script>
+</body>
+</html>"""
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
+
+    # 3. Thử xuất tệp ảnh PNG (cần mạng gọi mermaid.ink)
     try:
         png_bytes = graph.draw_mermaid_png()
         with open(path, "wb") as f:
             f.write(png_bytes)
         return path
     except Exception:
-        # Offline hoặc mermaid.ink không khả dụng — fallback text thuần, luôn thành công.
-        mmd_path = path.rsplit(".", 1)[0] + ".mmd"
-        with open(mmd_path, "w", encoding="utf-8") as f:
-            f.write(graph.draw_mermaid())
-        return mmd_path
+        # Fallback về đường dẫn HTML/Mermaid
+        return html_path
 
 
 if __name__ == "__main__":
     # python -m src.agent.graph
-    print(save_graph_visualization("graph.png"))
+    output = save_graph_visualization("graph.png")
+    print(f"Graph visualization exported to: {output}")
+

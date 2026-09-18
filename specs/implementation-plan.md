@@ -1,302 +1,159 @@
-# Implementation Plan
+# Implementation Plan (agent_stat_v3 FE & AI_Backend)
 
-Không có frontend/backend tách rời — 1 FastAPI service duy nhất phục vụ cả
-API và static UI (giống `atin/`). Vì vậy dùng cấu trúc `src/` đơn giản, không
-`frontend/` + `backend/` riêng.
-
-**Nguồn tham khảo:** `llm-engineer-demo/` có 2 track — Module I (native
-OpenAI SDK, RAG) và Module II (`app/agent_m2/`, LangChain `bind_tools` +
-`ToolNode`, LangGraph). Agent này cần vòng lặp tool-calling tự động nên đi
-theo pattern Module II (Buổi 2 — bản ĐƠN GIẢN NHẤT). Mỗi phase dưới đây ghi
-rõ file nguồn cụ thể nên đọc — xem `specs/product-spec.md` mục "Features
-Out of Scope" cho những gì KHÔNG làm.
-
-**Phase 1, 3, 5, 6, 7 (mục "v1 — đã xong") đã hoàn thành và verify với
-Postgres thật** — xem `specs/change-log.md` (các entry ngày 2026-09-16).
-Mọi mục `[ ]` còn lại là v2, CHƯA CODE. Bản kế hoạch này viết lại (rewrite)
-ngày 2026-09-17 theo cấu trúc 8 phase nhỏ, gọn — số thứ tự phase KHÔNG còn
-khớp với số phase trong các entry `change-log.md` trước ngày này (xem ghi
-chú đầu `change-log.md`).
-
-**Nguồn grounding cho phần v2 (không suy đoán):** `kcn/crowd/
-KCN_HUNGPHU_MQTT_AI_EVENTS.md` (payload MQTT thật) và `agent-harness/
-services/vms-sync/sources.py` (code sync Postgres→ClickHouse đang chạy
-thật) — xác nhận tên DB/bảng/cột chính xác cho từng loại sự kiện.
+Kế hoạch triển khai từng bước theo chuẩn Spec-Driven Development: chia tách 2 tầng **Frontend (FE)** và **AI_Backend**, **giữ nguyên kiến trúc ReAct Agent hiện tại** để dễ so sánh đối chứng, điều phối trọn gói bằng **Docker Compose**, tích hợp **Langfuse Observability** (đầy đủ output + token tracking), hỗ trợ **Model tự host Qwen3-4B** và giao diện **Claude-inspired UI**.
 
 ---
 
 ## Phase 1: Project Setup
 
-- [x] Xoá cấu trúc `src/` cũ (kỹ thuật đã đánh dấu Out of Scope) +
-      `resource/`, `docker-compose.yml`, `main.py` cũ — bắt đầu từ khung
-      trống, đúng cấu trúc thống nhất trong plan này
-- [x] `requirements.txt` — chỉ dependency thực sự cần (fastapi, uvicorn,
-      pydantic-settings, langgraph, langchain-core, langchain-openai,
-      openai, psycopg2-binary, pytest)
-- [x] `.env.example` — LLM backend + DB creds (không commit `.env` thật)
-- [x] `src/config.py` — đọc `.env` (điểm duy nhất chạm secrets), pattern
-      `pydantic_settings`
-- [x] `src/llm.py` — client hỗ trợ 2 backend (openai/ollama qua
-      `base_url`), key rotation, offline mode cho pytest/không có key
-- [x] Xác nhận `pytest` chạy được, app import được, `settings` load đúng
-      từ `.env`
-
----
-
-## Phase 2: Mở rộng 5 domain sự kiện VMS mới
-
-Đây là bước SCOPE cho 5 domain mới (FACE, FIRE, và 3 nhánh của ANOMALY) —
-xác định nguồn dữ liệu + viết trước golden dataset (biết trước "đúng" là
-gì) trước khi code Phase 3/5 hiện thực hoá nó.
-
-### Bảng ánh xạ sự kiện → nguồn dữ liệu
-
-| # | Sự kiện (VN) | Module (`ai_modules`) | DB.table Postgres | Cột chính | Trạng thái |
-|---|---|---|---|---|---|
-| 1 | Nhận diện khuôn mặt | `FACE` | `smart_face.smf_face_events` | `user_code`, `user_name`, `department_name`, `direction`, `score_match`, `access_time` | Mới |
-| 2 | Giám sát phương tiện | `PLATE` | `its.plate_event` | `normalized_license_plate`, `vehicle_type`, `manufacturer`, `direction`, `event_time` | Đã có (v1) |
-| 3 | Giám sát vùng cấm | `ZONE` | `virtual_fence.zone_event` | `zone_id`, `zone_name_cached`, `entity_type` (PERSON/VEHICLE), `direction` | Đã có (v1, gọi là "xâm nhập khu vực") |
-| 4 | Phát hiện ẩu đả | `ANOMALY` (`event_type=FIGHT_DETECTION`) | `anomaly.anomaly_event` | `severity`, `confidence`, `zone_id`, `event_time` | Mới |
-| 5 | Phát hiện đám đông | `ANOMALY` (`event_type=CROWD_DETECTION`) | `anomaly.anomaly_event` | `severity`, `zone_id`, `event_time` | Mới |
-| 6 | Phát hiện leo trèo | `ANOMALY` (`event_type=INTRUSION_DETECTION`) | `anomaly.anomaly_event` | `severity`, `confidence`, `zone_id`, `zone_name` | Mới |
-| 7 | Phát hiện cháy khói | `FIRE` | `firesmoke.fire_smoke_event` | `alert_level`, `entity_type` (FIRE/SMOKE), `event_time` | Mới |
-| 8 | Giám sát mực nước | `ANOMALY` (`event_type=WATER_LEVEL_DETECTION`) | `anomaly.anomaly_event` | `payload.water_level`, `warning_threshold`, `danger_threshold`, `trend`, `unit` | Mới |
-
-Lưu ý: "leo trèo" (#6) và "vùng cấm" (#3) dùng 2 bảng khác nhau dù cả 2 đều
-có thể dịch là "xâm nhập" trong tiếng Việt — dễ nhầm khi thiết kế tool/prompt.
-
-### Giả định — ĐÃ XÁC NHẬN 2026-09-17
-- ~~`smart_face`, `firesmoke`, `anomaly` nằm cùng Postgres host với
-  `its`/`virtual_fence`~~ — ĐÚNG, verify bằng cách connect thật tới cả 3
-  DB trên `DB_HOST` hiện tại (`192.168.1.250`), không cần biến `.env` mới.
-- ~~Role đọc-only hiện tại (`agent_readonly`) CHƯA có `GRANT SELECT` trên 3
-  DB mới~~ — ĐÚNG lúc đầu, đã GRANT xong (tái dùng role có sẵn, không tạo
-  role mới) — xem `specs/change-log.md` 2026-09-17.
+Thiết lập cấu trúc thư mục phân tách, cấu hình môi trường và quản lý secrets.
 
 ### Checklist
-- [x] Tạo role Postgres đọc-only trên 3 DB mới (`smart_face`, `firesmoke`,
-      `anomaly`) — lặp lại SQL mẫu trong README, chỉ đổi tên DB. Verify
-      SELECT chạy được, verify DELETE/UPDATE bị từ chối. (Xác nhận: dùng
-      role `agent_readonly` đã có sẵn, GRANT thêm trên 3 DB mới — không
-      tạo role mới. Xem `specs/change-log.md` 2026-09-17.)
-- [x] `src/config.py` — thêm `DB_NAME_FACE`, `DB_NAME_FIRE`,
-      `DB_NAME_ANOMALY` (đổi được qua `.env` như 2 DB hiện có).
-      `.env.example` cập nhật tương ứng. (Xem `specs/change-log.md`
-      2026-09-17.)
-- [x] `src/guardrails.py` — mở rộng `STAT_KEYWORDS` với từ khoá domain mới
-      (khuôn mặt, ẩu đả, đám đông, leo trèo, cháy, khói, mực nước) — nếu
-      không, câu hỏi domain mới sẽ bị `in_scope()` từ chối oan. (Xem
-      `specs/change-log.md` 2026-09-17.)
-- [x] `eval/datasets/agent_stat/v2.yaml` — 30 case (giữ nguyên cấu trúc
-      slice của v1), trải đều theo 8 domain. (Xem `specs/change-log.md`
-      2026-09-17.)
-
-      | Slice | Số case | Ghi chú |
-      |---|---|---|
-      | lookup | 18 | ~2 case/domain × 8 domain + 2 case dự phòng cho domain nhiều biến thể hơn (PLATE) |
-      | comparison/multihop | 6 | Ưu tiên câu hỏi CHÉO domain (vd. "hôm nay có cháy khói và đám đông ở khu nào không") |
-      | out_of_scope | 3 | Giữ nguyên câu hỏi cũ |
-      | injection | 3 | Giữ nguyên câu hỏi cũ |
-
-      Case giá trị đổi theo ngày vẫn chỉ dùng `must_include`/
-      `must_include_tool`, không dùng `expected` cứng — đúng quy ước v1.
-- [x] `eval/run.py` (mới) — script tối thiểu: đọc YAML, gọi `run_agent()`
-      từng case, kiểm `must_include`/`must_include_tool`/
-      `must_not_include`, in pass/fail theo `slice.type`. Sẽ CHƯA chạy hết
-      được cho tới khi Phase 3 + Phase 5 xong (tool/domain mới chưa tồn
-      tại) — viết trước là chủ ý, giống cách viết test trước khi code.
-      (Xem `specs/change-log.md` 2026-09-17 — script đi qua ĐÚNG pipeline
-      `check_input → in_scope → run_agent → check_output`, không chỉ gọi
-      thẳng `run_agent()`, để case out_of_scope/injection chấm đúng.)
+- [x] Thiết lập cấu trúc thư mục phân tách rõ ràng:
+  - `frontend/`: Chứa mã nguồn giao diện Claude UI (`index.html`, `style.css`, `app.js`).
+  - `ai_backend/` (hoặc `backend/` & `src/`): Chứa FastAPI REST API gateway, ReAct Agent, tools, prompt registry, LLM clients, tracing.
+- [x] Cập nhật tệp `.env.example` chuẩn (chỉ chứa placeholder rỗng, không chứa secret thật):
+  - Nhóm OpenAI: `OPENAI_API_KEYS`, `LLM_MODEL=gpt-4o-mini`.
+  - Nhóm Self-hosted Model: `MODEL_BASE_URL=http://192.168.1.196:18083/v1`, `MODEL_NAME=qwen3-4b`, `MODEL_API_KEY=lgw_ef6984db8f59_...`.
+  - Nhóm Database Postgres (5 DBs: `its`, `virtual_fence`, `smart_face`, `firesmoke`, `anomaly`).
+  - Nhóm Observability: `MONITORING_ENABLED`, `LANGFUSE_HOST=http://localhost:3000`.
+- [x] Cấu hình mật khẩu đăng nhập Langfuse mặc định thành `Atin@123#` trong `langfuse/.env` (User: `admin@agent-atin.local`).
+- [x] Tối ưu hóa `requirements.txt` với các dependencies cần thiết (FastAPI, uvicorn, pydantic-settings, langgraph, langchain-core, langchain-openai, openai==2.45.0, psycopg2-binary, pyyaml, pytest).
+- [x] Xác nhận `pytest` chạy được, import thông suốt.
 
 ---
 
-## Phase 3: Core Backend / Data Logic (Database layer, đọc-only)
+## Phase 2: Core UI (Claude-Inspired Frontend)
 
-### v1 — đã xong
-- [x] `src/db/connection.py` — connection Postgres read-only tới 2 DB
-      (`its`, `virtual_fence`), timeout, không cần pool ở MVP
-- [x] `src/db/queries.py` — 4 hàm SQL tham số hoá (đếm lượt xe, truy vết
-      biển số, khung giờ xâm nhập, liệt kê khu vực)
-- [x] Test kết nối thật với role read-only — verify SELECT chạy được,
-      verify DELETE/UPDATE bị Postgres từ chối
+Xây dựng giao diện web chat hiện đại, tinh tế phong cách Claude với bảng màu ấm và bố cục trực quan.
 
-### v2 — chưa code (domain mới, dựa trên Phase 2)
-- [x] `src/db/connection.py` — mở rộng whitelist DB (lớp code chặn kết
-      nối ngoài phạm vi) để chấp nhận thêm 3 DB mới, giữ nguyên cơ chế
-      chặn DB lạ. (Xem `specs/change-log.md` 2026-09-17.)
-- [x] `src/db/queries.py` — thêm hàm SQL tham số hoá theo đúng pattern có
-      sẵn (placeholder `%s`, không nối chuỗi):
-      - `count_face_events(date_from, date_to, direction, group_by)` →
-        `smart_face.smf_face_events`
-      - `count_fire_smoke_events(date_from, date_to, entity_type)` →
-        `firesmoke.fire_smoke_event`
-      - `count_anomaly_events(date_from, date_to, event_type, group_by)` →
-        `anomaly.anomaly_event`, DÙNG CHUNG cho 4 sự kiện (FIGHT_DETECTION/
-        CROWD_DETECTION/INTRUSION_DETECTION/WATER_LEVEL_DETECTION),
-        `event_type` bắt buộc + validate whitelist
-      - `water_level_latest(zone_code)` — KHÔNG thêm (golden dataset không
-        cần giá trị mực nước hiện tại, chỉ cần đếm sự kiện qua
-        `count_anomaly_events`).
-      (Xem `specs/change-log.md` 2026-09-17 — phát hiện + sửa bug org
-      filter khi test thật, ảnh hưởng cả `eval/datasets/agent_stat/v2.yaml`.)
-- [x] Test kết nối thật với role read-only cho 3 DB mới — verify SELECT
-      chạy được, verify DELETE/UPDATE bị từ chối (giống thủ tục v1). (Xem
-      `specs/change-log.md` 2026-09-17 — chạy lại tường minh 1 lần cho cả
-      3 DB, đã verify rải rác ở các item trước đó của Phase 2/3.)
+### Checklist
+- [x] Thiết kế layout giao diện chat (`frontend/index.html`, `frontend/style.css`, `frontend/app.js`):
+  - Sidebar: Lịch sử hội thoại, nút "Tạo đoạn chat mới", nút mở "Cài đặt".
+  - Main Chat Area: Khung hiển thị tin nhắn (User & Assistant), avatar tối giản, typography rõ nét, bảng màu ấm (warm neutral palette).
+  - Input Box: Ô nhập câu hỏi tự co giãn, nút gửi tin nhắn, gợi ý câu hỏi mẫu theo 8 domain sự kiện VMS.
+- [x] Xây dựng component hiển thị chi tiết công cụ đã gọi (**Tool Execution Accordion**):
+  - Khối accordion có thể thu gọn/mở rộng hiển thị: Công cụ đã chạy, số dòng dữ liệu truy vấn từ DB, thời gian xử lý.
+- [x] Xây dựng Modal / Drawer **Cài đặt Model (Settings)**:
+  - Cho phép người dùng chuyển đổi giữa `OpenAI Cloud (gpt-4o-mini)` và `Model tự host (qwen3-4b)`.
+  - Cho phép cấu hình tùy chỉnh API Base URL (hỗ trợ chạy local, docker hoặc ngrok).
+- [x] Tích hợp trình render Markdown (hỗ trợ hiển thị bảng số liệu thống kê, danh sách gạch đầu dòng ngay ngắn).
 
 ---
 
-## Phase 4: Core Observability — Langfuse Tracing (connect)
+## Phase 3: Core AI_Backend & Data Logic (Giữ nguyên Kiến trúc ReAct Agent)
 
-Chỉ dựng HẠ TẦNG tracing ở phase này — wiring vào pipeline thật (main.py,
-graph.py) thuộc Phase 5.
+Duy trì nguyên vẹn cấu trúc ReAct Agent LangGraph hiện tại để đảm bảo độ chính xác và dễ so sánh đối chứng, đồng thời bổ sung hỗ trợ Model tự host Qwen3-4B.
 
-- [x] Deploy Langfuse **self-hosted trên chính máy này** bằng Docker
-      Compose chính thức của Langfuse (không dùng Langfuse Cloud). Xác
-      nhận UI truy cập được, tạo 1 project, lấy `public_key`/`secret_key`.
-      (Xem `specs/change-log.md` 2026-09-17 — thư mục `langfuse/`, UI tại
-      `http://localhost:3000`, project/key tạo tự động qua
-      `LANGFUSE_INIT_*`, đã verify hoạt động thật qua API.)
-- [x] `src/config.py` — thêm `MONITORING_ENABLED` (mặc định `false`),
-      `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`.
-      `.env.example` cập nhật, `requirements.txt` thêm `langfuse`. (Xem
-      `specs/change-log.md` 2026-09-17.)
-- [x] `src/monitoring/tracing.py` (mới) — copy nguyên tắc từ
-      `llm-engineer-demo/app/monitoring/tracing.py`: `trace_answer()`
-      (context manager cho 1 lượt `/ask`), `trace_step()` (nested span cho
-      bước con). Lazy import + lazy client (không phụ thuộc cứng vào
-      package `langfuse` khi tắt), no-op hoàn toàn khi
-      `MONITORING_ENABLED=false`. Dùng langfuse SDK trực tiếp, KHÔNG bọc
-      qua LangChain callback. (Xem `specs/change-log.md` 2026-09-17 — phát
-      hiện + sửa thêm 1 bug hạ tầng Langfuse trong lúc test thật.)
+### Checklist
+- [x] Cập nhật module kết nối LLM (`ai_backend/llm.py` hoặc `src/llm.py`):
+  - Hỗ trợ khởi tạo client tương thích chuẩn OpenAI ChatCompletions trỏ tới cả OpenAI Cloud và Self-hosted endpoint `http://192.168.1.196:18083/v1` (Model: `qwen3-4b`, API Key: `lgw_ef6984db8f59_...`).
+  - Duy trì cơ chế quay vòng key khi gặp rate-limit đối với OpenAI.
+- [x] Giữ nguyên tập Tool tham số hóa cho cả 8 domain sự kiện VMS (`count_vehicle_flow`, `vehicle_by_manufacturer`, `trace_vehicle`, `count_face_events`, `zone_intrusion_by_hour`, `count_anomaly_events`, `count_fire_smoke_events`).
+- [x] Giữ nguyên kiến trúc đồ thị ReAct LangGraph (`build_react_subgraph`: `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`).
+- [x] Duy trì Git-based Prompt Registry (`prompts/`) nạp template động qua `production.txt`.
+- [x] Duy trì hàm xuất sơ đồ đồ thị ReAct Graph `save_graph_visualization(...)` hỗ trợ xuất Mermaid, HTML và PNG.
 
 ---
 
-## Phase 5: Connect UI to Data
+## Phase 4: Connect UI to AI_Backend Data
 
-Nối UI → agent → tool → data logic (Phase 3) thành 1 luồng chạy được, và
-gắn tracing (Phase 4) vào đúng chỗ.
+Xây dựng REST API Gateway với FastAPI và kết nối giao diện Frontend với AI_Backend.
 
-### v1 — đã xong
-- [x] `src/agent/tools.py` — tool tham số hoá bọc hàm ở Phase 3 + 1 tool
-      SQL đọc-only dự phòng
-- [x] `src/agent/graph.py` — vòng lặp ReAct (LangGraph): seed → agent ⇄
-      tools → pack. Tiêm ngày giờ hiện tại vào system prompt mỗi lượt gọi
-      (không hardcode lúc build graph)
-- [x] `src/agent/answer.py` — diễn giải số liệu thành câu tiếng Việt (LLM
-      call thứ 2, tuỳ chọn qua `.env`, có fallback template)
-- [x] `src/main.py` — FastAPI app, `POST /ask`, `GET /health`, phục vụ
-      static UI tại `/`
-- [x] `static/index.html` — UI chat tối giản (HTML/JS thuần)
-
-### v2 — chưa code
-- [x] `src/agent/tools.py` — bọc 3 hàm mới từ Phase 3 thành `@tool`,
-      docstring nêu RÕ whitelist `event_type` hợp lệ cho
-      `count_anomaly_events` (LLM đọc docstring để không bịa tham số).
-      (Xem `specs/change-log.md` 2026-09-17.)
-- [x] `list_khu_vuc` (hoặc tool mới) — mở rộng liệt kê thêm camera có
-      `ai_modules` FACE/FIRE/ANOMALY.
-      (Xem `specs/change-log.md` 2026-09-17.)
-- [x] `src/main.py` (`ask()`) — bọc toàn bộ pipeline
-      `guardrail_input → agent → guardrail_output` trong `trace_answer()`
-      (từ Phase 4). (Xem `specs/change-log.md` 2026-09-17.)
-- [x] `src/agent/graph.py` — wire `trace_step()` vào các bước con (chọn
-      tool, chạy tool, `answer.py` diễn giải), dùng `t["_span"]` làm
-      parent span. (Xem `specs/change-log.md` 2026-09-17 — kèm
-      `src/agent/react.py` vì node agent/tools nằm ở helper ReAct.)
+### Checklist
+- [x] Hoàn thiện ứng dụng FastAPI (`ai_backend/main.py` hoặc `backend/main.py`):
+  - Router `/api/health`: Kiểm tra trạng thái kết nối tới 5 Database Postgres và endpoint LLM.
+  - Router `/api/models`: Trả về danh sách model hỗ trợ (OpenAI Cloud `gpt-4o-mini`, Self-hosted `qwen3-4b`) và model đang kích hoạt.
+  - Router `/api/config`: Cung cấp thông tin cấu hình an toàn cho Frontend (không lộ secret).
+  - Router `/api/chat` (hoặc `/ask`): Nhận câu hỏi từ Frontend `{"question": "...", "model_override": "..."}`, điều phối qua ReAct Agent và trả về `{"answer": "...", "detail": {...}}`.
+- [x] Kết nối Frontend với Backend API:
+  - Tích hợp hàm `fetch('/api/chat')` từ `frontend/app.js` gửi request và nhận phản hồi.
+  - Hiển thị hiệu ứng loading / thinking state mượt mà trong khi chờ backend phản hồi.
+  - Render câu trả lời và đổ dữ liệu vào accordion "Tool Execution Detail".
 
 ---
 
-## Phase 6: Validation and Error States
+## Phase 5: Observability & Token Metrics (Langfuse)
 
-### v1 — đã xong
-- [x] `src/guardrails.py` — chặn injection/nội dung độc hại (input); kiểm
-      tra phạm vi câu hỏi; đối chiếu số liệu + redact PII + giới hạn độ
-      dài (output) — tất cả bằng code, không LLM
-- [x] Ghép luồng: `guardrail_input → agent → guardrail_output`
-- [x] UI hiển thị rõ 3 trạng thái: đang xử lý / trả lời thành công / lỗi
-- [x] Test offline (`pytest`): guardrail chặn injection, guardrail từ
-      chối câu hỏi ngoài phạm vi, tool SQL chặn câu lệnh ghi, agent chạy
-      offline không crash
-- [x] Test thật (5 câu hỏi mẫu qua endpoint đầy đủ) — xem `test-plan.md`
+Nâng cấp module giám sát để thu thập đầy đủ chi tiết mọi cuộc gọi LLM và liên kết với hạ tầng Langfuse.
 
-### v2 — chưa code
-- [x] Test offline domain mới: `count_anomaly_events(event_type=...)`
-      ngoài whitelist → lỗi rõ ràng, không query DB; `in_scope()` nhận
-      đúng câu hỏi domain mới; `get_connection()` chặn `dbname` ngoài 5 DB
-      hợp lệ. (Xem `specs/change-log.md` 2026-09-17 —
-      `tests/test_offline.py`.)
-- [x] Test guardrail an toàn cho 3 DB mới: SELECT chạy được, DELETE/UPDATE
-      bị từ chối — lặp lại thủ tục v1 cho `smart_face`/`firesmoke`/
-      `anomaly`. (Xem `specs/change-log.md` 2026-09-18 —
-      `tests/test_db_guardrail_new_dbs.py`: lớp app
-      `ReadOnlySqlTransaction` + lớp GRANT `InsufficientPrivilege`.)
-- [x] Test thật: tối thiểu 1 câu hỏi mẫu / domain mới (5 domain), verify
-      số liệu thật khớp `rows` — đặc biệt phân biệt đúng "leo trèo" vs
-      "vùng cấm" (2 bảng khác nhau, xem lưu ý Phase 2). (Xem
-      `specs/change-log.md` 2026-09-18 — cần fix trước 1 bug dependency
-      `openai`/`httpx2` chặn mọi lời gọi LLM thật.)
-- [x] Chạy `eval/run.py` full 30 case (`eval/datasets/agent_stat/v2.yaml`)
-      — xác nhận tỷ lệ pass/fail theo slice; 3 case `out_of_scope` + 3 case
-      `injection` PHẢI vẫn pass nguyên (tín hiệu regression nếu mở rộng
-      `STAT_KEYWORDS` sai cách). (Xem `specs/change-log.md` 2026-09-18 —
-      30/30 pass, ổn định qua 2 lần chạy; sửa 8 case dataset dùng
-      assertion text quá cứng nhắc.)
-- [x] Test Langfuse: `MONITORING_ENABLED=false` → `pytest` chạy y hệt
-      trước; bật `true` + gọi `/ask` thật → trace xuất hiện trong Langfuse
-      UI, không lộ `OPENAI_API_KEYS`/DB password; Langfuse service down →
-      `/ask` vẫn trả lời bình thường (không crash vì lỗi tracing). (Xem
-      `specs/change-log.md` 2026-09-18 — verify tận ClickHouse, phát hiện
-      độ trễ khi Langfuse down cao hơn ước tính ban đầu, ~8.3s.)
+### Checklist
+- [x] Cải tiến `tracing.py` (`ai_backend/monitoring/tracing.py` hoặc `src/monitoring/tracing.py`):
+  - Đảm bảo mọi trace cha (`ask`/`chat`) và span con (`chon_tool`, `chay_tool`, `dien_giai`) luôn lưu trữ đầy đủ trường `output`.
+  - Trích xuất và ghi nhận thông số token: `prompt_tokens`, `completion_tokens`, `total_tokens` từ metadata phản hồi của LLM.
+  - Ghi nhận thông số cấu hình: `model_name`, `temperature`, `latency_s`.
+- [x] Đảm bảo cơ chế Fail-safe & No-op:
+  - Khi `MONITORING_ENABLED=false` hoặc khi Langfuse server tạm thời down, hệ thống bắt lỗi an toàn và tiếp tục trả lời bình thường, không làm crash API.
+- [x] Viết unit test offline xác nhận hàm tracing hoạt động trơn tru.
 
 ---
 
-## Phase 7: Local Run Instructions
+## Phase 6: Validation, Guardrails and Error States
 
-### v1 — đã xong
-- [x] `README.md` — prerequisites, cài đặt, biến môi trường, lệnh chạy,
-      URL local, troubleshooting
+Bảo vệ hệ thống bằng các lớp kiểm soát an toàn và xử lý ngoại lệ chu đáo.
 
-### v2 — chưa code
-- [x] `README.md` — cập nhật bảng biến môi trường: 3 DB mới
-      (`DB_NAME_FACE`/`DB_NAME_FIRE`/`DB_NAME_ANOMALY`) + nhóm biến
-      Langfuse (`MONITORING_ENABLED`, `LANGFUSE_*`). (Xem
-      `specs/change-log.md` 2026-09-18.)
-- [x] `README.md` mục "Tạo DB role read-only" — thêm ví dụ SQL cho 3 DB
-      mới (cùng pattern, chỉ đổi tên DB). (Xem `specs/change-log.md`
-      2026-09-18.)
-
----
-
-## Phase 8: Local Demo Setup
-
-### v1 — đã xong
-- [x] `README.md` mục "Demo với ngrok" — lệnh expose cổng FastAPI duy nhất
-      (`ngrok http <port>`), không cần cấu hình thêm vì frontend/backend
-      chung 1 cổng
-
-### v2 — chưa code
-- [x] Demo Langfuse: mở UI Langfuse cục bộ, xem trace của 1 lượt `/ask`
-      thật (input/output/latency/span con). (Xem `specs/change-log.md`
-      2026-09-18 — link trace thật + hướng dẫn đăng nhập cho user tự mở.)
-- [x] Demo golden dataset: chạy `eval/run.py`, trình bày báo cáo pass/fail
-      theo domain — dùng làm bằng chứng "agent trả lời đúng cả 8 domain",
-      không chỉ demo tay từng câu hỏi. (Xem `specs/change-log.md`
-      2026-09-18 — phát hiện + sửa 1 bug thật: nhầm tool mực nước ↔
-      cháy/khói trong lúc demo.)
+### Checklist
+- [x] Củng cố Input Guardrails:
+  - Chặn triệt để prompt injection độc hại bằng regex (không qua LLM để tối ưu tốc độ).
+  - Từ chối lịch sự các câu hỏi ngoài phạm vi thống kê VMS KCN Hưng Phú (thời tiết, giải trí...).
+- [x] Củng cố Output Guardrails:
+  - Đối chiếu số liệu trong câu trả lời với kết quả thực tế từ Tool (chống hallucination).
+  - Che giấu thông tin cá nhân nhạy cảm (PII redaction) và giới hạn độ dài câu trả lời.
+- [x] Xử lý trạng thái lỗi trên Backend và Frontend:
+  - Thông báo thân thiện khi mất kết nối Database hoặc timeout khi gọi model tự host.
+  - Frontend hiển thị cảnh báo lỗi rõ ràng, không để xảy ra hiện tượng "im lặng" hoặc treo trang.
+- [x] Chạy bộ kiểm thử `pytest -v` đảm bảo toàn bộ guardrail test cases đều passed.
 
 ---
 
-## Phase 9: Prompt Registry
+## Phase 7: Docker Compose Orchestration
 
-- [x] `src/prompts/registry.py` & cấu trúc thư mục `prompts/` — xây dựng class `PromptRegistry` đọc prompt từ file YAML trong `prompts/`, quản lý version & alias `production.txt`, render template với validation biến bắt buộc (raise lỗi rõ ràng `ValueError` khi thiếu biến). (Xem `specs/change-log.md` 2026-09-18.)
-- [x] Tích hợp `PromptRegistry` vào `src/agent/graph.py` (system prompt) & `src/agent/answer.py` (answer prompt) — thay thế prompt hardcode, giữ nguyên behavior của agent. (Xem `specs/change-log.md` 2026-09-18.)
-- [x] Test offline (`tests/test_prompt_registry.py`) — verify `get()`, `render()`, validation biến, đổi `production.txt` trỏ version mới không sửa code, và rollback = revert commit. (Xem `specs/change-log.md` 2026-09-18.)
+Đóng gói các thành phần thành container Docker và điều phối bằng một cấu hình thống nhất.
+
+### Checklist
+- [x] Viết `frontend/Dockerfile`:
+  - Sử dụng Nginx Alpine nhẹ phục vụ file tĩnh và reverse proxy các request `/api` sang backend.
+- [x] Viết `ai_backend/Dockerfile` (hoặc `backend/Dockerfile`):
+  - Sử dụng Python 3.11 slim, cài đặt dependencies và khởi chạy FastAPI app với Uvicorn.
+- [x] Viết tệp điều phối chính `docker-compose.yml` tại thư mục gốc:
+  - Service `frontend`: Expose cổng `8080` (hoặc `3001`).
+  - Service `ai_backend`: Expose cổng `8000`.
+  - Service `langfuse` stack: Expose cổng `3000` (đăng nhập: `admin@agent-atin.local` / `Atin@123#`).
+  - Cấu hình bridge network nội bộ liên thông giữa FE, AI_Backend, Langfuse và kết nối host Postgres.
+- [x] Xác nhận lệnh `docker compose up -d` và `docker compose down` hoạt động hoàn hảo.
 
 ---
 
-## Ghi chú
+## Phase 8: Local Run Instructions & Demo Setup
 
-Prompt Registry đã được chính thức bổ sung thành Phase 9 vào kế hoạch này để hoàn thành 100% các tính năng trong `specs/product-spec.md` và các bài test trong `specs/test-plan.md`.
+Cập nhật tài liệu hướng dẫn vận hành cục bộ và thiết lập demo công khai.
 
+### Checklist
+- [x] Cập nhật `README.md` với đầy đủ hướng dẫn:
+  - Hướng dẫn 1 lệnh khởi chạy trọn gói qua Docker Compose (`docker compose up -d`).
+  - Hướng dẫn khởi chạy local standalone cho từng thành phần (Frontend, AI_Backend, Langfuse).
+  - Bảng tổng hợp cổng và URL truy cập (`:8080`, `:8000`, `:3000`).
+  - Hướng dẫn đăng nhập Langfuse Dashboard với mật khẩu `Atin@123#`.
+- [x] Hướng dẫn demo qua `ngrok`:
+  - Lệnh expose cổng Frontend: `ngrok http 8080`.
+  - Hướng dẫn cấu hình API Base URL trên giao diện Frontend để demo từ xa.
+
+---
+
+## Phase 9: Golden Dataset Evaluation & E2E Verification
+
+Đánh giá toàn diện chất lượng câu trả lời trên cả 8 domain sự kiện VMS và xuất sơ đồ đồ thị ReAct Graph.
+
+### Checklist
+- [x] Chạy bộ 30 câu hỏi mẫu (`eval/run.py`):
+  - Đảm bảo 100% (30/30) câu hỏi mẫu đạt chuẩn (pass) trên cả 8 domain sự kiện.
+  - Đảm bảo 3 case injection và 3 case out_of_scope vẫn hoạt động chính xác.
+- [x] Kiểm thử Live E2E với Model tự host `qwen3-4b` tại `http://192.168.1.196:18083/v1`:
+  - Xác nhận câu trả lời có số liệu thật chính xác và thời gian phản hồi nhanh.
+- [x] Mở Langfuse UI (`http://localhost:3000` mật khẩu `Atin@123#`):
+  - Xác nhận trace hiển thị đủ cây span, đầy đủ `output` và thống kê token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`).
+- [x] Chạy lệnh xuất lại toàn bộ sơ đồ đồ thị ReAct Graph (`graph.png`, `graph_diagram.html`):
+  ```bash
+  python3 -m src.agent.graph
+  ```
+- [x] Cập nhật nhật ký hoàn thành vào `specs/change-log.md`.

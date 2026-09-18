@@ -1,261 +1,47 @@
-<!doctype html>
-<title>Sơ đồ agent_ATIN</title>
-<style>
-  :root {
-    --bg: #0b1220;
-    --surface: #131c30;
-    --surface-2: #1a2540;
-    --border: #263352;
-    --text: #e6ebf5;
-    --text-dim: #8b98b8;
-    --accent: #4f7cff;
-    --accent-dim: #2a3d6e;
-    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
-    --sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  }
-  @media (prefers-color-scheme: light) {
-    :root:not([data-theme="dark"]) {
-      --bg: #f4f6fb;
-      --surface: #ffffff;
-      --surface-2: #edf1fb;
-      --border: #d7deef;
-      --text: #131b2e;
-      --text-dim: #5b6784;
-      --accent: #2952d9;
-      --accent-dim: #dbe4ff;
-    }
-  }
-  :root[data-theme="light"] {
-    --bg: #f4f6fb;
-    --surface: #ffffff;
-    --surface-2: #edf1fb;
-    --border: #d7deef;
-    --text: #131b2e;
-    --text-dim: #5b6784;
-    --accent: #2952d9;
-    --accent-dim: #dbe4ff;
-  }
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>Sơ đồ Đồ thị ReAct Agent — agent_ATIN</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fbfbf9; padding: 1rem; }
+    .card { background: #ffffff; padding: 2rem; border-radius: 12px; border: 1px solid #e5e4dc; box-shadow: 0 4px 12px rgba(0,0,0,0.06); max-width: 900px; width: 100%; text-align: center; }
+    h2 { color: #1c1b18; margin-bottom: 0.5rem; }
+    p { color: #636159; font-size: 0.95rem; margin-bottom: 1.5rem; }
+    code { background: #f0eee6; padding: 0.2rem 0.4rem; border-radius: 4px; font-family: monospace; }
+    .mermaid { margin: 1rem 0; display: flex; justify-content: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Sơ đồ Đồ thị ReAct Agent (LangGraph)</h2>
+    <p>Kiến trúc ReAct Agent: <code>START → seed → agent ⇄ tools → pack → END</code></p>
+    <div class="mermaid">
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	seed(seed)
+	agent(agent)
+	tools(tools)
+	pack(pack)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> seed;
+	agent -.-> pack;
+	agent -.-> tools;
+	seed --> agent;
+	tools --> agent;
+	pack --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    padding: env(safe-area-inset-top, 0px) 0 env(safe-area-inset-bottom, 0px);
-  }
-  .wrap {
-    max-width: 920px;
-    margin: 0 auto;
-    padding: 40px 16px 64px;
-  }
-  header {
-    margin-bottom: 36px;
-  }
-  .eyebrow {
-    font-family: var(--mono);
-    font-size: 0.75rem;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin: 0 0 10px;
-  }
-  h1 {
-    font-size: clamp(1.6rem, 4vw, 2.1rem);
-    margin: 0 0 10px;
-    text-wrap: balance;
-    letter-spacing: -0.01em;
-  }
-  .sub {
-    color: var(--text-dim);
-    font-size: 0.95rem;
-    max-width: 65ch;
-    line-height: 1.55;
-    margin: 0;
-  }
-  .sub code { font-family: var(--mono); font-size: 0.85em; }
-
-  section { margin-bottom: 40px; }
-  h2 {
-    font-size: 1.05rem;
-    margin: 0 0 4px;
-    display: flex;
-    align-items: baseline;
-    gap: 10px;
-  }
-  h2 .tag {
-    font-family: var(--mono);
-    font-size: 0.7rem;
-    color: var(--text-dim);
-    font-weight: 400;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 2px 9px;
-  }
-  .desc {
-    color: var(--text-dim);
-    font-size: 0.88rem;
-    margin: 0 0 16px;
-    line-height: 1.5;
-    max-width: 68ch;
-  }
-
-  .diagram-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 14px;
-    padding: 20px;
-    overflow-x: auto;
-  }
-
-  .legend {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-    gap: 10px;
-    margin-top: 16px;
-  }
-  .legend-item {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 14px;
-  }
-  .legend-item .name {
-    font-family: var(--mono);
-    font-size: 0.8rem;
-    color: var(--accent);
-    display: block;
-    margin-bottom: 4px;
-  }
-  .legend-item .note {
-    font-size: 0.82rem;
-    color: var(--text-dim);
-    line-height: 1.45;
-  }
-
-  footer {
-    color: var(--text-dim);
-    font-size: 0.8rem;
-    border-top: 1px solid var(--border);
-    padding-top: 16px;
-    margin-top: 48px;
-    font-family: var(--mono);
-  }
-
-  @media (max-width: 480px) {
-    .wrap { padding: 28px 16px 48px; }
-  }
-</style>
-
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
-
-<div class="wrap">
-  <header>
-    <p class="eyebrow">agent_ATIN · kiến trúc hệ thống</p>
-    <h1>Sơ đồ luồng xử lý câu hỏi</h1>
-    <p class="sub">
-      Snapshot hiện tại (2026-09-16) của pipeline <code>POST /ask</code>
-      (<code>src/main.py</code>) và ReAct graph bên trong agent
-      (<code>src/agent/graph.py</code>), lấy trực tiếp từ
-      <code>_build_graph().get_graph().draw_mermaid()</code> — không phải sơ đồ vẽ tay.
-    </p>
-  </header>
-
-  <section>
-    <h2>Pipeline tổng <span class="tag">src/main.py</span></h2>
-    <p class="desc">
-      Guardrail input chặn cứng injection/nội dung độc hại trước khi câu hỏi
-      chạm agent; câu hỏi ngoài phạm vi được trả lời lịch sự ngay, không gọi
-      agent/DB. Guardrail output đối chiếu số liệu, redact PII, giới hạn độ dài
-      trước khi trả về UI.
-    </p>
-    <div class="diagram-card">
-      <pre class="mermaid">
-flowchart TD
-    U(["Câu hỏi người dùng"]) --> CI{"check_input()<br/>injection / toxic?"}
-    CI -- "có" --> R400["HTTP 400<br/>GuardrailViolation"]
-    CI -- "không" --> SC{"in_scope()?"}
-    SC -- "ngoài phạm vi" --> OOS["Trả lời từ chối lịch sự<br/>(không gọi agent/DB)"]
-    SC -- "trong phạm vi" --> RD["redact_pii(question)"]
-    RD --> AG["run_agent()<br/>— xem chi tiết bên dưới"]
-    AG -- "lỗi DB/LLM" --> R503["HTTP 503"]
-    AG -- "ok" --> CO["check_output()<br/>đối chiếu số liệu · redact PII · giới hạn độ dài"]
-    CO --> RES(["AskResponse: answer + rows"])
-
-    classDef entry fill:#4f7cff,stroke:#2952d9,color:#fff
-    classDef guard fill:#1a2540,stroke:#263352,color:#e6ebf5
-    classDef err fill:#3a1730,stroke:#7a2a5c,color:#ffd6ee
-    classDef ok fill:#122a1f,stroke:#1f5b3f,color:#c9f5df
-    class U,RES entry
-    class CI,SC,RD,CO guard
-    class R400,R503,OOS err
-    class AG ok
-      </pre>
     </div>
-  </section>
-
-  <section>
-    <h2>Agent ReAct graph <span class="tag">src/agent/graph.py + react.py</span></h2>
-    <p class="desc">
-      LangGraph thật, xuất trực tiếp từ graph đã compile. Tối đa 2 lời gọi
-      LLM/câu hỏi: <code>agent</code> chọn tool + tham số (function-calling,
-      không Text-to-SQL tự do), <code>pack</code> gộp kết quả rồi
-      <code>answer.py</code> (bên ngoài graph này, gọi từ <code>_pack()</code>)
-      diễn giải thành câu tiếng Việt — có thể tắt qua <code>ANSWER_USE_LLM=false</code>.
-    </p>
-    <div class="diagram-card">
-      <pre class="mermaid">
-flowchart TD
-    START(["__start__"]) --> seed["seed<br/>đưa câu hỏi vào state"]
-    seed --> agent{{"agent<br/>LLM #1: chọn tool + tham số"}}
-    agent -- "còn cần tool" --> tools["tools<br/>ToolNode: thực thi tool đã chọn"]
-    tools --> agent
-    agent -- "đủ dữ liệu" --> pack["pack<br/>gộp QueryResult + build_answer() (LLM #2, tuỳ chọn)"]
-    pack --> END(["__end__"])
-
-    classDef term fill:#4f7cff,stroke:#2952d9,color:#fff
-    classDef node fill:#1a2540,stroke:#263352,color:#e6ebf5
-    classDef llm fill:#2a1d4a,stroke:#5a3fa0,color:#e6d9ff
-    class START,END term
-    class seed,tools,pack node
-    class agent llm
-      </pre>
-    </div>
-  </section>
-
-  <section>
-    <h2>Tool có sẵn cho LLM #1</h2>
-    <p class="desc">6 tool tham số hoá trong <code>src/agent/tools.py</code> — model chỉ chọn tool + điền tham số, không tự sinh SQL (trừ fallback cuối).</p>
-    <div class="legend">
-      <div class="legend-item">
-        <span class="name">get_db_schema</span>
-        <span class="note">Trả cấu trúc bảng/cột cho model tham khảo khi cần.</span>
-      </div>
-      <div class="legend-item">
-        <span class="name">list_khu_vuc</span>
-        <span class="note">Liệt kê camera/khu vực hợp lệ, tránh model đoán sai giá trị lọc.</span>
-      </div>
-      <div class="legend-item">
-        <span class="name">count_vehicle_flow</span>
-        <span class="note">Đếm lượt xe ra/vào theo thời gian, loại xe, hãng xe.</span>
-      </div>
-      <div class="legend-item">
-        <span class="name">trace_plate</span>
-        <span class="note">Truy vết lịch sử di chuyển theo biển số.</span>
-      </div>
-      <div class="legend-item">
-        <span class="name">zone_intrusion_by_hour</span>
-        <span class="note">Khung giờ xâm nhập khu vực nhiều nhất.</span>
-      </div>
-      <div class="legend-item">
-        <span class="name">run_sql_readonly</span>
-        <span class="note">Fallback SQL đọc-only, whitelist bảng + chặn từ khoá ghi, dùng khi không tool nào khớp.</span>
-      </div>
-    </div>
-  </section>
-
-  <footer>
-    src/main.py · src/agent/graph.py · src/agent/react.py · src/agent/tools.py · src/agent/answer.py · src/guardrails.py
-  </footer>
-</div>
+  </div>
+  <script>mermaid.initialize({startOnLoad:true, theme: 'neutral'});</script>
+</body>
+</html>

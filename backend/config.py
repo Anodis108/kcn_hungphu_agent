@@ -1,4 +1,4 @@
-"""Cấu hình — đọc từ biến môi trường / file .env. Điểm DUY NHẤT đọc secrets."""
+"""Cấu hình Backend & AI — đọc từ biến môi trường / file .env. Điểm DUY NHẤT đọc secrets."""
 
 from __future__ import annotations
 

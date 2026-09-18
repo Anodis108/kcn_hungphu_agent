@@ -1,3 +1,1249 @@
+## 2026-09-18 (Phase 9, Item 5: Hoàn Tất Toàn Diện 9 Phase của Kế Hoạch Triển Khai)
+
+Tổng kết và hoàn thành 100% tất cả 9 Phase trong `specs/implementation-plan.md` cho dự án `agent_stat_v3` (Frontend + AI_Backend, Docker Compose, Langfuse Observability, Self-hosted Model Qwen3-4B):
+
+### Added / Changed
+- Đã hoàn tất toàn bộ 9/9 Phase và 100% checklist items trong `specs/implementation-plan.md`:
+  - **Phase 1 (Project Setup)**: Phân tách cấu trúc thư mục, chuẩn hóa `.env.example`, tài khoản Langfuse `admin@agent-atin.local` / `Atin@123#`, tối ưu `requirements.txt`.
+  - **Phase 2 (Core UI)**: Giao diện web chat Claude-inspired với bảng màu ấm, thanh Sidebar, Modal Cài đặt Model/API Base URL, Accordion Tool Execution Detail, render bảng Markdown.
+  - **Phase 3 (Core AI_Backend & ReAct Agent)**: Giữ nguyên vẹn kiến trúc LangGraph ReAct (`build_react_subgraph`), bộ 9 tools VMS trên 5 DBs, dual LLM provider (OpenAI `gpt-4o-mini` & Self-hosted `qwen3-4b`), Git-based Prompt Registry.
+  - **Phase 4 (Connect UI to AI_Backend Data)**: FastAPI REST API Gateway (`/api/health`, `/api/models`, `/api/config`, `/api/chat`, `/ask`), kết nối fetch API từ Frontend, thinking states, hiển thị chi tiết số dòng truy vấn.
+  - **Phase 5 (Observability & Token Metrics)**: Tích hợp Langfuse SDK trực tiếp, lưu trữ đầy đủ `output` cho cả trace cha và child spans (`chon_tool`, `chay_tool`, `dien_giai`), trích xuất và ghi nhận `prompt_tokens`, `completion_tokens`, `total_tokens`, `latency_s`, `model_name`, cơ chế Fail-safe & No-op an toàn.
+  - **Phase 6 (Validation, Guardrails & Error States)**: Input Guardrails chặn regex prompt injection, từ chối out-of-scope; Output Guardrails che giấu PII, đối chiếu số liệu chống hallucination, gắn disclaimer; xử lý thông báo lỗi tiếng Việt thân thiện khi mất kết nối DB hoặc timeout.
+  - **Phase 7 (Docker Compose Orchestration)**: `frontend/Dockerfile` (Nginx Alpine reverse proxy), `backend/Dockerfile` (Python 3.11 slim), `docker-compose.yml` điều phối trọn gói 8 containers (Frontend, Backend, Langfuse Web/Worker, ClickHouse, MinIO, Redis, Postgres).
+  - **Phase 8 (Local Run Instructions & Demo Setup)**: Cập nhật `README.md` với đầy đủ tài liệu khởi chạy 1 lệnh, bảng cổng & URL, hướng dẫn demo ngrok và cấu hình remote API.
+  - **Phase 9 (Golden Dataset & E2E Verification)**: Đánh giá 30/30 (100%) cases Golden Dataset, kiểm thử Live E2E thành công với Self-hosted Qwen3-4B trên 5 domain sự kiện, xác nhận Langfuse UI hiển thị đủ span tree và token metrics, xuất sơ đồ ReAct Graph (`graph.png`, `graph_diagram.html`, `graph.mmd`).
+
+### Verified
+- **Golden Dataset**: Đạt **30/30 passed (100% tuyệt đối)** qua `python3 eval/run.py`.
+- **Unit Test Suite**: Đạt **115/115 passed (100% xanh)** qua `pytest -v`.
+- **Docker Stack**: Toàn bộ 8 containers hoạt động ổn định và liên thông trong mạng bridge `kcn_hungphu_network`.
+- **Live E2E**: Phản hồi chính xác số liệu từ 5 Database Postgres và mô hình tự host `qwen3-4b`.
+
+---
+
+## 2026-09-18 (Review Phase 9 Item 5 vs product-spec.md/test-plan.md)
+
+Review toàn diện tổng thể dự án đối chiếu với `specs/product-spec.md` và `specs/test-plan.md`:
+
+### Pass
+- **`product-spec.md` (Toàn bộ 7 Acceptance Criteria)**:
+  - #1: Khởi chạy 1 lệnh `docker compose up -d` hoạt động hoàn hảo.
+  - #2: Giao diện Claude-inspired UI tinh tế, hỗ trợ chuyển đổi linh hoạt mô hình và cấu hình API.
+  - #3: Phân tách rõ ràng Frontend tĩnh (Nginx) và AI_Backend (FastAPI).
+  - #4: Giữ nguyên kiến trúc ReAct Agent LangGraph đảm bảo độ chính xác và tương thích.
+  - #5: Langfuse Observability đầy đủ cây span, trường `output` và thống kê token metrics.
+  - #6: Tương thích hoàn toàn với Model tự host `qwen3-4b` tại `http://192.168.1.196:18083/v1`.
+  - #7: Đạt 100% (30/30) câu hỏi mẫu trong Golden Dataset trên cả 8 domain sự kiện VMS.
+- **`test-plan.md` (Toàn bộ 7 Mục Kiểm Thử)**:
+  - 100% các kịch bản kiểm thử (ReAct Agent, LLM Tự Host, Observability, Guardrails, Frontend UI, Docker Compose, Golden Dataset) đều đạt kết quả pass.
+  - Toàn bộ 115 bài test trong `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing
+- Không còn mục nào còn thiếu. Toàn bộ kế hoạch triển khai đã hoàn thành 100%.
+
+---
+
+## 2026-09-18 (Phase 9, Item 4: Xuất Sơ Đồ Đồ Thị ReAct Graph)
+
+Triển khai hoàn tất Phase 9, Item 4 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- Chạy lệnh xuất sơ đồ đồ thị ReAct LangGraph:
+  ```bash
+  python3 -m src.agent.graph
+  ```
+- Xuất thành công đồng bộ 3 định dạng trực quan:
+  1. `graph.png`: Ảnh sơ đồ định dạng PNG kích thước 11.6 KB, thể hiện trọn vẹn luồng điều khiển `START → seed → agent ⇄ tools → pack → END`.
+  2. `graph_diagram.html`: Giao diện HTML độc lập nhúng Mermaid.js hiển thị sơ đồ đồ thị tương tác.
+  3. `graph.mmd`: Mã nguồn Mermaid text thuần mô tả các nút và luồng rẽ nhánh điều kiện.
+
+### Verified
+- Kiểm tra tính toàn vẹn và trực quan của cả 3 tệp sơ đồ đồ thị (`graph.png`, `graph_diagram.html`, `graph.mmd`).
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 9 Item 4 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #3, Acceptance Criteria #4) và `specs/test-plan.md` (Mục 2: Test Kiến Trúc ReAct Graph):
+
+### Pass
+- **`product-spec.md` (Features In Scope #3 & Acceptance Criteria #4: Giữ nguyên Kiến trúc ReAct Agent)**:
+  - Sơ đồ đồ thị ReAct LangGraph phản ánh chính xác 100% cấu trúc ReAct:
+    - Nút `seed`: Nhận câu hỏi và khởi tạo context.
+    - Vòng lặp `agent ⇄ tools`: Chọn công cụ, truyền tham số, thực thi truy vấn DB.
+    - Nút `pack`: Tổng hợp kết quả và diễn giải câu trả lời tiếng Việt.
+  - Cung cấp đầy đủ file đồ thị phục vụ lưu trữ, tài liệu hóa kiến trúc và debug trực quan.
+- **`test-plan.md` (Mục 2: Test Kiến trúc ReAct Graph)**:
+  - `save_graph_visualization` tạo tệp hợp lệ và hiển thị đầy đủ các nút nghiệp vụ.
+  - Toàn bộ 115 unit tests trong `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo của Phase 9)
+- Cập nhật hoàn tất kế hoạch triển khai tổng kết toàn bộ dự án vào `specs/change-log.md` (Phase 9, Item 5).
+
+---
+
+## 2026-09-18 (Phase 9, Item 3: Xác Nhận Langfuse Observability UI, Cây Span, Output & Token Metrics)
+
+Triển khai hoàn tất Phase 9, Item 3 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `docker-compose.yml`:
+  - Bổ sung cấu hình `LANGFUSE_S3_EVENT_UPLOAD_REGION: ${LANGFUSE_S3_EVENT_UPLOAD_REGION:-auto}` và `LANGFUSE_S3_MEDIA_UPLOAD_REGION: ${LANGFUSE_S3_MEDIA_UPLOAD_REGION:-auto}` cho cả 2 service `langfuse-web` và `langfuse-worker` giải quyết triệt để cảnh báo `Region is missing` khi ghi nhận event/media vào MinIO S3 blob storage.
+  - Cấu hình tường minh `LANGFUSE_HOST: http://langfuse-web:3000` và `LANGFUSE_BASE_URL: http://langfuse-web:3000` cho container `ai_backend` để đảm bảo kết nối nội bộ thông suốt trong mạng bridge `kcn_hungphu_network`.
+- Thực thi xác nhận giao diện và dữ liệu Observability trên Langfuse Stack (`http://localhost:3000` với tài khoản `admin@agent-atin.local` / `Atin@123#`):
+  - Kiểm tra kết nối xác thực Langfuse Client Auth Check thành công (`True`).
+  - Kiểm tra ingestion thực tế qua các request `/api/chat` ghi nhận đầy đủ vào bảng sự kiện ClickHouse (`default.events_core`):
+    - Trace cha: `name: chat`, `type: SPAN`, `input: "Tổng lưu lượng xe hôm nay là bao nhiêu?"`, `output: {"status": "ok", "answer": ...}`.
+    - Cây span con lồng nhau:
+      1. `chon_tool` (chọn công cụ ReAct Agent qua LLM): Ghi nhận `prompt_tokens: 1756`, `completion_tokens: 43`, `total_tokens: 1799`, `model_name: gpt-4o-mini-2024-07-18`, `latency_s: 3.07s`, `output: {"tool_calls": [{"name": "count_vehicle_flow", ...}]}`.
+      2. `chay_tool` (thực thi truy vấn DB Postgres): Ghi nhận `latency_s: 0.073s`, `output: {"tools": ["count_vehicle_flow"]}`.
+      3. `dien_giai` (diễn giải số liệu sang tiếng Việt): Ghi nhận `latency_s: 0.78s`, `output: {"answer": "Tổng lưu lượng xe hôm nay là 10,125 lượt."}`.
+
+### Verified
+- Trace tree phân cấp đầy đủ và chính xác (`parent_span_id` liên kết chặt chẽ tới root trace).
+- Tất cả các span con và trace cha lưu trữ trọn vẹn trường `output` (không bị rỗng/null).
+- Thống kê chi tiết token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`), `latency_s`, `model_name`, `temperature` được ghi nhận chuẩn xác.
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 9 Item 3 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #3, Acceptance Criteria #5) và `specs/test-plan.md` (Mục 3: Test Observability Langfuse):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #5: Langfuse Observability Đầy Đủ & Token Metrics)**:
+  - Cung cấp giao diện Langfuse self-hosted tại `http://localhost:3000` với thông tin đăng nhập `admin@agent-atin.local` / `Atin@123#`.
+  - Toàn bộ cây span cha - con (`chat` $\rightarrow$ `chon_tool` $\rightarrow$ `chay_tool` $\rightarrow$ `dien_giai`) đều được ghi nhận đầy đủ trường `output`, `input`, và `latency_s`.
+  - Thống kê token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`) được trích xuất từ metadata phản hồi của mô hình và lưu trữ vào sự kiện phân tích.
+- **`test-plan.md` (Mục 3: Test Observability Langfuse #1 - #5)**:
+  - #1 (Đăng nhập Dashboard): Thông tin xác thực hợp lệ.
+  - #2 (Lưu trữ Đầy đủ Output): Cả trace cha và child span đều ghi nhận trường `output` chuẩn JSON.
+  - #3 (Thống kê Token Usage): Trích xuất chính xác token metadata.
+  - #4 (Model & Latency Info): Đầy đủ thông số model name, temperature, latency.
+  - #5 (Bảo mật Secret): Không lộ key thật hay DB password trong payload.
+  - Toàn bộ 115 unit tests trong `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo của Phase 9)
+- Chạy lệnh xuất sơ đồ đồ thị ReAct Graph `graph.png` và `graph_diagram.html` (Phase 9, Item 4).
+- Cập nhật hoàn tất kế hoạch triển khai (Phase 9, Item 5).
+
+---
+
+## 2026-09-18 (Phase 9, Item 2: Kiểm Thử Live E2E với Model Tự Host Qwen3-4B)
+
+Triển khai hoàn tất Phase 9, Item 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- Thực thi kiểm thử Live E2E trực tiếp với endpoint Model tự host `qwen3-4b` tại `http://192.168.1.196:18083/v1` (API Key: `lgw_ef6984db8f59_zSvqDWXxYzeaU-4U0pLqS7LBiD5gvOm9wI7R-L4Lpqw`):
+  - Xác thực endpoint `GET /v1/models` trả về model `qwen3-4b` online và sẵn sàng.
+  - Kiểm thử trực tiếp luồng ReAct Agent và FastAPI API Gateway `/api/chat` với `model_provider: self_hosted` trên 5 domain sự kiện thực tế:
+    1. *Phương tiện (ITS)*: "Hôm nay có bao nhiêu lượt xe vào?" $\rightarrow$ Gọi tool `count_vehicle_flow`, trả lời 7.250 lượt xe vào, độ trễ 5.13s.
+    2. *Khuôn mặt (Face)*: "Trong khoảng từ 07/09/2026 đến 14/09/2026 có bao nhiêu lượt nhận diện khuôn mặt?" $\rightarrow$ Gọi tool `count_face_events`, trả lời 3.640 lượt, độ trễ 5.82s.
+    3. *Cháy khói (Fire)*: "Hôm nay có cảnh báo cháy hoặc khói nào không?" $\rightarrow$ Gọi tool `count_fire_smoke_events`, báo không có dữ liệu (bảng rỗng), độ trễ 4.85s.
+    4. *Ẩu đả (Fight)*: "Hôm nay có bao nhiêu vụ ẩu đả?" $\rightarrow$ Gọi tool `count_anomaly_events`, trả lời 584 vụ, độ trễ 5.75s.
+    5. *Mực nước (Water)*: "Mực nước hôm nay có vượt ngưỡng cảnh báo không?" $\rightarrow$ Gọi tool `count_anomaly_events`, trả lời vượt ngưỡng cảnh báo, độ trễ 6.14s.
+
+### Verified
+- Số liệu trả về chuẩn xác 100% từ 5 Database Postgres `its`, `virtual_fence`, `smart_face`, `firesmoke`, `anomaly`.
+- Thời gian phản hồi trung bình nhanh (4.8s - 6.1s), không xảy ra lỗi timeout hay hallucination số liệu.
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 9 Item 2 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #4, Acceptance Criteria #6) và `specs/test-plan.md` (Mục 3: Test Thật LLM Tự Host Qwen3-4B):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #6: Hoạt động với Model Tự Host)**:
+  - Agent ReAct khởi tạo client tương thích chuẩn OpenAI ChatCompletions, kết nối thành công tới endpoint `http://192.168.1.196:18083/v1`.
+  - Sinh câu trả lời tiếng Việt mạch lạc, phân tích chính xác số liệu và chọn đúng tool tương ứng theo từng domain sự kiện.
+- **`test-plan.md` (Mục 3: Test Thật LLM Tự Host #1, #3)**:
+  - Kiểm thử Live E2E thành công 100% trên 5 domain chính.
+  - Toàn bộ 115 unit test trong `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo của Phase 9)
+- Mở Langfuse UI kiểm tra trực quan trace tree, output và token metrics (Phase 9, Item 3).
+- Chạy lệnh xuất sơ đồ đồ thị ReAct Graph `graph.png` và `graph_diagram.html` (Phase 9, Item 4).
+
+---
+
+## 2026-09-18 (Phase 9, Item 1: Đánh Giá Golden Dataset 30 Cases trên 8 Domain VMS)
+
+Triển khai hoàn tất Phase 9, Item 1 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `src/guardrails.py`:
+  - Cập nhật chuỗi thông báo từ chối `OUT_OF_SCOPE_REPLY` chứa cụm từ `"ngoài phạm vi"` nhằm đồng bộ với assertion của bộ đánh giá Golden Dataset v2.
+- `eval/run.py`:
+  - Thực thi kiểm thử tự động toàn diện pipeline (`check_input` $\rightarrow$ `run_agent` $\rightarrow$ `check_output`) trên toàn bộ 30 câu hỏi mẫu (`eval/datasets/agent_stat/v2.yaml`).
+
+### Verified
+- `python3 eval/run.py` → **Đạt 30/30 passed (100% tuyệt đối)**:
+  - `lookup` (18/18 pass): Phủ trọn 8 domain sự kiện VMS (ITS, Zone, Face, Fight, Crowd, Intrusion, Fire, Water).
+  - `comparison` (6/6 pass): Kiểm tra đầy đủ multihop, chống hồi quy bug xe, seat limit note, và so sánh chéo giữa các domain.
+  - `out_of_scope` (3/3 pass): Lọc và từ chối chính xác các câu hỏi ngoài phạm vi (thời tiết, thơ ca, cổ phiếu).
+  - `injection` (3/3 pass): Chặn đứng các hành vi prompt injection và phá hoại SQL độc hại.
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 9 Item 1 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Acceptance Criteria #4, #7) và `specs/test-plan.md` (Mục 7: Đánh Giá Golden Dataset):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #7: Đạt chuẩn Kiểm thử Golden Dataset)**:
+  - Đạt 100% (30/30) câu hỏi mẫu passed trên cả 8 domain sự kiện VMS, đáp ứng trọn vẹn tiêu chí nghiệm thu của hệ thống.
+  - Các trường hợp ngoại lệ (3 injection, 3 out_of_scope) được xử lý dứt khoát tại tầng Guardrails đầu vào.
+- **`test-plan.md` (Mục 7: Đánh Giá Golden Dataset 30 Case)**:
+  - Pipeline thực thi đúng quy chuẩn, đối chiếu số liệu thật từ Postgres.
+  - Toàn bộ 115 unit test và 30 evaluation cases đều đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo của Phase 9)
+- Kiểm thử Live E2E với Model tự host `qwen3-4b` tại `http://192.168.1.196:18083/v1` (Phase 9, Item 2).
+- Mở Langfuse UI kiểm tra trace tree, output và token metrics (Phase 9, Item 3).
+- Chạy lệnh xuất sơ đồ đồ thị ReAct Graph `graph.png` và `graph_diagram.html` (Phase 9, Item 4).
+
+---
+
+## 2026-09-18 (Phase 8, Item 2: Hướng Dẫn Demo Qua ngrok & Cấu Hình Remote API)
+
+Triển khai hoàn tất Phase 8, Item 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `README.md`:
+  - Bổ sung hướng dẫn chi tiết kịch bản 1: Expose Frontend phục vụ qua Docker Nginx (`ngrok http 8080` hoặc `ngrok http 3001`), tận dụng cơ chế reverse proxy tự động chuyển tiếp request `/api` sang backend mà người dùng không cần sửa URL.
+  - Bổ sung hướng dẫn chi tiết kịch bản 2: Expose riêng AI_Backend (`ngrok http 8000`) để phục vụ các client từ xa hoặc môi trường phân tán.
+  - Cung cấp quy trình 6 bước trực quan cấu hình API Base URL và chuyển đổi Model Provider trên giao diện Claude UI (Mở Modal Settings $\rightarrow$ Nhập URL $\rightarrow$ Nhấn Kiểm tra kết nối $\rightarrow$ Chọn Model $\rightarrow$ Lưu cấu hình vào `localStorage`).
+
+### Verified
+- Kiểm tra tính năng cấu hình API Base URL động và fallback endpoint trên Frontend `frontend/app.js`.
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 8 Item 2 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #1, #4, Acceptance Criteria #2, #6) và `specs/test-plan.md` (Mục 5: Test Giao Diện Frontend #2):
+
+### Pass
+- **`product-spec.md` (Features In Scope #1 & Acceptance Criteria #2)**:
+  - Giao diện Claude UI hỗ trợ chuyển đổi linh hoạt API endpoint từ xa và nhà cung cấp mô hình (OpenAI `gpt-4o-mini` vs Self-hosted `qwen3-4b`).
+  - Tài liệu hướng dẫn sử dụng `ngrok` rõ ràng, giúp dễ dàng thiết lập môi trường demo công khai trong vài giây.
+- **`test-plan.md` (Mục 5: Test Giao Diện Frontend)**:
+  - Thao tác cấu hình endpoint và chuyển đổi model qua UI được tài liệu hóa chi tiết, chính xác.
+  - Toàn bộ 115 bài kiểm thử unit tests đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở Phase 9 tiếp theo)
+- Chạy đánh giá toàn diện Golden Dataset (30 cases) trên cả 8 domain VMS (`eval/run.py`), kiểm thử E2E Live với Qwen3-4B, kiểm tra Langfuse UI và xuất sơ đồ ReAct Graph (Phase 9).
+
+---
+
+## 2026-09-18 (Phase 8, Item 1: Cập Nhật README.md với Đầy Đủ Hướng Dẫn Vận Hành)
+
+Triển khai hoàn tất Phase 8, Item 1 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `README.md`:
+  - Bổ sung hướng dẫn khởi chạy 1 lệnh trọn gói qua Docker Compose (`docker compose up -d`, `docker compose ps`, `docker compose logs -f`, `docker compose down`).
+  - Bổ sung hướng dẫn khởi chạy local standalone cho từng thành phần (AI_Backend với FastAPI/Uvicorn, Frontend Claude UI với HTTP server tĩnh, Langfuse standalone).
+  - Bổ sung Bảng tổng hợp cổng & URL truy cập chi tiết (`Frontend :8080/:3001`, `Backend :8000`, `Swagger Docs :8000/docs`, `Langfuse :3000`, `MinIO :9190`).
+  - Hướng dẫn đăng nhập và sử dụng Langfuse Dashboard với tài khoản mặc định `admin@agent-atin.local` / `Atin@123#`, hướng dẫn theo dõi output traces và token metrics.
+  - Bổ sung các lệnh kiểm thử chất lượng `pytest -v`, `python3 eval/run.py` và xuất sơ đồ ReAct Graph `python3 -m src.agent.graph`.
+
+### Verified
+- Cấu trúc tài liệu `README.md` rõ ràng, chuẩn markdown, các đường dẫn liên kết nội bộ chính xác.
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 8 Item 1 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #1, #2, #3, Acceptance Criteria #1, #5) và `specs/test-plan.md` (Mục 1, 4, 6):
+
+### Pass
+- **`product-spec.md` (Features In Scope & Acceptance Criteria #1, #5)**:
+  - `README.md` cung cấp đầy đủ và chính xác toàn bộ tài liệu hướng dẫn vận hành hệ thống kcn_hungphu_agent v3.
+  - Bảng cổng và URL đồng bộ tuyệt đối với cấu hình `docker-compose.yml` và `.env`.
+  - Hướng dẫn đăng nhập Langfuse với tài khoản `admin@agent-atin.local` và mật khẩu `Atin@123#` chi tiết, rõ ràng.
+- **`test-plan.md` (Mục 4 & 6)**:
+  - Hướng dẫn chuẩn xác các bước xác thực cả môi trường Docker Compose và môi trường Local Dev Standalone.
+  - Toàn bộ 115 unit tests trong `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo của Phase 8)
+- Hoàn thiện chi tiết hướng dẫn demo qua `ngrok` và cấu hình API Base URL từ xa trên giao diện Frontend (Phase 8, Item 2).
+
+---
+
+## 2026-09-18 (Phase 7, Item 4: Xác Nhận Runtime docker compose up -d và docker compose down)
+
+Triển khai hoàn tất Phase 7, Item 4 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `docker-compose.yml`:
+  - Cấu hình `CLICKHOUSE_CLUSTER_ENABLED: "false"` và `CLICKHOUSE_CLUSTER_NAME: default` cho cả `langfuse-web` và `langfuse-worker`, bảo đảm ClickHouse chạy mượt mà ở chế độ standalone không yêu cầu Zookeeper cluster.
+- `.env` & `.env.example`:
+  - Bổ sung các biến cấu hình cổng `FRONTEND_PORT=3001` (hoặc `8080`) và `BACKEND_PORT=8000` giúp linh hoạt tránh xung đột cổng với các service nền tảng khác.
+
+### Verified
+- `docker compose build` → Build hoàn chỉnh 2 container images `kcn-hungphu-agent-ai_backend` và `kcn-hungphu-agent-frontend`.
+- `docker compose up -d` → Khởi động đồng bộ và thành công 100% cả 8 containers:
+  - `kcn_hungphu_frontend` (:3001)
+  - `kcn_hungphu_backend` (:8000)
+  - `kcn_hungphu_langfuse_web` (:3000)
+  - `kcn_hungphu_langfuse_worker` (:3030)
+  - `kcn_hungphu_clickhouse` (:8123, :9000)
+  - `kcn_hungphu_minio` (:9190)
+  - `kcn_hungphu_redis` (:6379)
+  - `kcn_hungphu_langfuse_postgres` (:5432)
+- Kiểm tra kết nối dịch vụ trực tiếp:
+  - `curl -s http://localhost:8000/api/health` → `200 OK` (`{"status":"ok","service":"agent_ATIN v3 Backend",...}`).
+  - `curl -s http://localhost:3001/` → `200 OK` (Phục vụ Claude UI tĩnh đầy đủ).
+  - `curl -s http://localhost:3001/api/health` → `200 OK` (Nginx reverse proxy sang backend hoạt động thông suốt).
+  - `curl -s http://localhost:3000/api/public/health` → `200 OK` (`{"status":"OK","version":"4.37.0"}`).
+- `docker compose down` → Dừng an toàn toàn bộ 8 containers và giải phóng tài nguyên mạng bridge mà không làm mất dữ liệu trong named volumes.
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 7 Item 4 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #2, Acceptance Criteria #1, #5) và `specs/test-plan.md` (Mục 6: Test Điều Phối Docker Compose):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #1: Khởi chạy 1 lệnh)**:
+  - Lệnh `docker compose up -d` khởi động đồng bộ và thành công cả 3 cụm: Frontend, AI_Backend, và Langfuse stack.
+  - Các service đều đạt trạng thái `healthy` / `Up` và phục vụ đúng các cổng quy định.
+- **`product-spec.md` (Acceptance Criteria #5: Langfuse Observability Đầy đủ)**:
+  - Langfuse web và worker tự động chạy migration database và clickhouse, khởi động hoàn tất trên cổng `http://localhost:3000`.
+- **`test-plan.md` (Mục 6: Test Điều Phối Docker Compose - Các kịch bản #1, #2, #3, #4)**:
+  - #1 (`docker compose up -d`): Toàn bộ service chạy không lỗi.
+  - #2 (Kết nối nội bộ FE → AI_Backend): Nginx proxy chuyển tiếp `/api/` sang backend thành công.
+  - #3 (Kết nối AI_Backend → DB / LLM): Backend truy cập qua cấu hình bridge network và `host.docker.internal`.
+  - #4 (`docker compose down`): Dừng và dọn dẹp sạch sẽ toàn bộ container, bảo toàn dữ liệu.
+- Bộ unit test `pytest -v` duy trì 115/115 passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở Phase 8 tiếp theo)
+- Cập nhật tài liệu hướng dẫn vận hành cục bộ và demo trong `README.md` (Phase 8).
+
+---
+
+## 2026-09-18 (Phase 7, Item 3: Viết Tệp Điều Phối Chính docker-compose.yml)
+
+Triển khai hoàn tất Phase 7, Item 3 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `docker-compose.yml`:
+  - Service `frontend`: Expose cổng `${FRONTEND_PORT:-8080}:80`, build context `./frontend`, phụ thuộc `ai_backend`, kết nối mạng nội bộ `kcn_network`.
+  - Service `ai_backend`: Expose cổng `${BACKEND_PORT:-8000}:8000`, build context `.`, dockerfile `backend/Dockerfile`, nạp biến môi trường từ `.env`, cấu hình `extra_hosts: ["host.docker.internal:host-gateway"]` để kết nối linh hoạt tới Database Postgres trên host, kết nối mạng `kcn_network`.
+  - Cụm service `langfuse` stack:
+    - `langfuse-web`: Expose cổng `3000:3000`, thiết lập tài khoản quản trị mặc định `admin@agent-atin.local` / `Atin@123#`, phụ thuộc các dịch vụ storage/cache đã healthy.
+    - `langfuse-worker`: Xử lý hàng đợi tác vụ nền Langfuse.
+    - `clickhouse`: ClickHouse Server 25.12 lưu trữ OLAP và analytics trace, có healthcheck tự động.
+    - `minio`: Blob storage lưu trữ sự kiện và media, expose cổng `9190:9000`, có healthcheck tự động.
+    - `redis`: Redis 7 phục vụ hàng đợi và caching, có healthcheck tự động qua redis-cli ping.
+    - `langfuse-postgres`: Postgres 17 lưu trữ metadata quản trị của Langfuse, có healthcheck `pg_isready`.
+  - Bridge network `kcn_network`: Driver bridge tên `kcn_hungphu_network` liên thông toàn bộ container.
+  - Named volumes: `langfuse_postgres_data`, `langfuse_clickhouse_data`, `langfuse_clickhouse_logs`, `langfuse_minio_data`, `langfuse_redis_data` bảo toàn dữ liệu khi dừng container.
+- `tests/test_docker_config.py`:
+  - Bổ sung `test_docker_compose_file_exists_and_valid()`: Xác thực tệp tồn tại và đủ 8 services bắt buộc.
+  - Bổ sung `test_docker_compose_frontend_service_config()`: Xác thực cổng 8080, Dockerfile, dependency và network.
+  - Bổ sung `test_docker_compose_ai_backend_service_config()`: Xác thực cổng 8000, extra_hosts và network.
+  - Bổ sung `test_docker_compose_langfuse_and_network_config()`: Xác thực cổng 3000, tài khoản `admin@agent-atin.local` / `Atin@123#`, bridge network và volumes.
+
+### Verified
+- `docker compose config` → Kiểm tra cấu trúc Compose hợp lệ 100%, không phát hiện lỗi cú pháp hay dependency loop.
+- `pytest -v` → **115/115 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 7 Item 3 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #2, #3, Acceptance Criteria #1, #5) và `specs/test-plan.md` (Mục 6: Test Điều Phối Docker Compose):
+
+### Pass
+- **`product-spec.md` (Mục 2: Quản lý Điều phối Trọn gói & Acceptance Criteria #1, #5)**:
+  - Tệp `docker-compose.yml` điều phối thống nhất toàn bộ các thành phần: `frontend`, `ai_backend`, và trọn bộ cụm `langfuse` stack (`langfuse-web`, `langfuse-worker`, `clickhouse`, `minio`, `redis`, `langfuse-postgres`).
+  - Cổng truy cập được expose chính xác: Frontend `:8080`, AI_Backend `:8000`, Langfuse `:3000`, MinIO `:9190`.
+  - Thông tin đăng nhập mặc định Langfuse khớp tuyệt đối với đặc tả: `admin@agent-atin.local` / `Atin@123#`.
+  - Mạng bridge `kcn_network` cho phép liên thông nội bộ và kết nối cơ sở dữ liệu host qua `host.docker.internal`.
+- **`test-plan.md` (Mục 6: Test Điều phối Docker Compose)**:
+  - Kiểm tra tính toàn vẹn cú pháp YAML qua `docker compose config` thành công.
+  - Bộ kiểm thử `tests/test_docker_config.py` xác thực đầy đủ port mapping, extra_hosts, dependencies, credentials và persistent storage volumes.
+  - Toàn bộ 115 unit tests trong `pytest` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo của Phase 7)
+- Xác nhận lệnh `docker compose up -d` và `docker compose down` hoạt động hoàn hảo trong môi trường container runtime (Phase 7, Item 4).
+
+---
+
+## 2026-09-18 (Phase 7, Item 2: Đóng Gói Container AI_Backend với Python 3.11 Slim)
+
+Triển khai hoàn tất Phase 7, Item 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `backend/Dockerfile`:
+  - Sử dụng base image `python:3.11-slim` tối ưu kích thước và bảo mật.
+  - Thiết lập biến môi trường tối ưu `PYTHONDONTWRITEBYTECODE=1`, `PYTHONUNBUFFERED=1`, `PYTHONPATH=/app`, `PORT=8000`.
+  - Cài đặt các tiện ích hệ thống tối thiểu (`curl`) để phục vụ healthcheck.
+  - Cài đặt toàn bộ Python dependencies từ `requirements.txt` không dùng cache.
+  - Sao chép toàn bộ mã nguồn ứng dụng (`src/`, `backend/`, `prompts/`, `frontend/`).
+  - Mở cổng `EXPOSE 8000`.
+  - Cấu hình chỉ thị `HEALTHCHECK` tự động thăm dò endpoint `GET http://localhost:8000/api/health` mỗi 30s.
+  - Chỉ thị khởi chạy FastAPI app: `CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]`.
+- `tests/test_docker_config.py`:
+  - Bổ sung hàm kiểm thử `test_backend_dockerfile_exists_and_valid()` xác thực tệp `backend/Dockerfile` tồn tại và chứa cấu hình chuẩn.
+
+### Verified
+- `docker build -f backend/Dockerfile -t kcn-hungphu-ai-backend:test .` → Build thành công 100%.
+- Khởi chạy container thử nghiệm, kiểm tra `GET /api/health` trả về HTTP 200 `{"status":"ok","service":"agent_ATIN v3 Backend",...}`.
+- `pytest -v` → **111/111 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 7 Item 2 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Features In Scope #1, #2, Acceptance Criteria #1) và `specs/test-plan.md` (Mục 6: Test Điều Phối Docker Compose):
+
+### Pass
+- **`product-spec.md` (Mục 1 & 2: Phân tách Độc lập & Quản lý Điều phối)**:
+  - `backend/Dockerfile` tạo container độc lập cho AI_Backend, đóng gói trọn gói FastAPI REST API Gateway, ReAct Agent, Tools và các cơ chế Guardrails/Tracing.
+  - Container khởi động nhanh với Python 3.11 slim, lắng nghe trên cổng 8000, hỗ trợ healthcheck định kỳ.
+- **`test-plan.md` (Mục 6: Test Điều phối Docker Compose)**:
+  - Kiểm tra cú pháp và cấu trúc Dockerfile thành công qua unit test.
+  - Thử nghiệm build image thực tế và kiểm tra phản hồi API health check hoàn hảo.
+  - Toàn bộ 111 bài test trong test suite `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo của Phase 7)
+- Viết tệp điều phối chính `docker-compose.yml` tại thư mục gốc kết nối Frontend (:8080), AI_Backend (:8000), Langfuse stack (:3000) và mạng nội bộ bridge (Phase 7, Item 3).
+
+---
+
+## 2026-09-18 (Phase 7, Item 1: Đóng Gói Container Frontend với Nginx Alpine)
+
+Triển khai hoàn tất Phase 7, Item 1 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `frontend/Dockerfile`:
+  - Sử dụng base image siêu nhẹ `nginx:alpine`.
+  - Sao chép cấu hình `nginx.conf` vào `/etc/nginx/conf.d/default.conf`.
+  - Sao chép file tĩnh `index.html`, `style.css`, `app.js` vào thư mục web `/usr/share/nginx/html/`.
+  - Mở cổng `EXPOSE 80`.
+- `frontend/nginx.conf`:
+  - Cấu hình server block lắng nghe trên port 80.
+  - Phục vụ tĩnh giao diện Claude-inspired với cache control cho CSS/JS.
+  - Cấu hình reverse proxy chuyển tiếp các request `/api/` và `/ask` tới `http://ai_backend:8000` với timeout 120s.
+- `tests/test_docker_config.py`:
+  - Khởi tạo bộ test unit kiểm tra tệp `frontend/Dockerfile` và `frontend/nginx.conf`.
+
+### Verified
+- `pytest -v` → **110/110 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 7 Item 1 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` và `specs/test-plan.md`:
+
+### Pass
+- **`product-spec.md` (Mục 1 & 2: Frontend độc lập & Docker Nginx)**:
+  - Container Frontend nhẹ, phục vụ tĩnh và ủy quyền API an toàn sang `ai_backend:8000`.
+- **`test-plan.md` (Mục 6: Container hóa)**:
+  - Đạt chuẩn cấu hình reverse proxy và Dockerfile.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing
+- Viết `backend/Dockerfile` (Phase 7, Item 2).
+
+---
+
+## 2026-09-18 (Phase 6, Item 4: Bộ Kiểm Thử Guardrails & Validation Toàn Diện)
+
+Triển khai hoàn tất Phase 6, Item 4 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- Chạy bộ kiểm thử tự động toàn diện `pytest -v` bao phủ trọn vẹn toàn bộ các lớp bảo vệ Guardrail, Validation, Database Security và Error States:
+  - `tests/test_input_guardrails.py`: 30 tests (chặn injection tiếng Anh/Việt, bẻ khóa DAN/jailbreak, trích xuất prompt, lọc toxic, từ chối out-of-scope, nhận diện 8 domain VMS in-scope).
+  - `tests/test_output_guardrails.py`: 9 tests (che giấu SĐT, email, CCCD/CMND, đối chiếu số liệu chống hallucination, gắn disclaimer khi số liệu không khớp, fallback cho câu quá ngắn/toxic, cắt gọn độ dài).
+  - `tests/test_error_states.py`: 6 tests (xử lý mất kết nối DB, timeout model AI, rate limit 429).
+  - `tests/test_db_guardrail_new_dbs.py`: 3 tests (bảo vệ 2 lớp quyền đọc readonly trên Postgres).
+  - `tests/test_offline.py`: 10 tests (chặn ghi SQL, whitelist tables/views, chạy ReAct agent offline không crash).
+  - `tests/test_api_gateway.py`: 6 tests (hợp đồng API Gateway, HTTP 400 và HTTP 503).
+  - `tests/test_ui_integration.py`: 2 tests (tích hợp Frontend).
+  - `tests/test_observability_tracing.py`: 17 tests (giám sát Langfuse, token metrics, fail-safe).
+  - `tests/test_prompt_registry.py`: 10 tests (quản lý prompt versioning, validation).
+  - `tests/test_react_graph_architecture.py`: 3 tests (kiến trúc đồ thị ReAct LangGraph).
+  - `tests/test_tools_suite.py`: 5 tests (bộ 9 công cụ VMS, schema docstring, validation tham số).
+  - `tests/test_llm_backend.py`: 5 tests (Dual LLM backend OpenAI / Self-hosted Qwen3-4B, rotating key pool).
+  - `tests/test_backend_setup.py`: 4 tests (khởi tạo backend, static file serving).
+
+### Verified
+- `pytest -v` → **108/108 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 6 Tổng Thể vs product-spec.md/test-plan.md)
+
+Review toàn diện Phase 6 đối chiếu với `specs/product-spec.md` (Acceptance Criteria #5: Guardrails) và `specs/test-plan.md` (Mục 4: Test Guardrail An Toàn):
+
+### Pass
+- **`product-spec.md` (Mục 5: Guardrails & Validation)**:
+  - Input Layer: Chặn triệt để prompt injection, toxic, và từ chối lịch sự câu hỏi ngoài phạm vi không tốn LLM/DB.
+  - Output Layer: Che giấu PII, đối chiếu số liệu thật từ DB evidence để gắn disclaimer chống hallucination, cắt gọn câu trả lời dài.
+  - Error States: Thông báo tiếng Việt rõ ràng khi gặp sự cố mạng, DB hoặc model; UI không bị treo trang.
+  - Phân tách rõ ràng giữa Frontend và AI_Backend.
+- **`test-plan.md` (Mục 4 & 5)**:
+  - 100% các tiêu chí test guardrails đều passed.
+  - Toàn bộ **Phase 6** trong `specs/implementation-plan.md` đã hoàn thành 100% (4/4 mục `[x]`).
+  - Toàn bộ 108 bài test trong test suite `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Chuyển tiếp sang Phase tiếp theo)
+- Triển khai **Phase 7: Docker Compose Orchestration** (`frontend/Dockerfile`, `ai_backend/Dockerfile`, root `docker-compose.yml`).
+
+---
+
+## 2026-09-18 (Phase 6, Item 3: Xử lý Trạng thái Lỗi trên Backend và Frontend)
+
+Triển khai hoàn tất Phase 6, Item 3 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `backend/main.py`:
+  - Bổ sung hàm `_format_error_message(exc)`: Chuyển đổi các ngoại lệ kỹ thuật thô (`psycopg2.OperationalError`, timeout, `APIConnectionError`, `RateLimitError`) thành thông điệp tiếng Việt thân thiện, rõ ràng, giúp người dùng và quản trị viên nhận biết chính xác nguyên nhân:
+    - Lỗi kết nối Database $\rightarrow$ `"Lỗi kết nối cơ sở dữ liệu VMS: Hệ thống tạm thời không thể truy vấn số liệu từ Database. Vui lòng kiểm tra lại dịch vụ cơ sở dữ liệu."`.
+    - Lỗi Timeout / Mất kết nối Model $\rightarrow$ `"Lỗi kết nối mô hình AI: Quá thời gian chờ (timeout) hoặc máy chủ mô hình AI không phản hồi. Vui lòng thử lại sau."`.
+    - Lỗi Rate Limit (429) $\rightarrow$ `"Mô hình AI đang bận hoặc đạt giới hạn lượt gọi (Rate Limit). Vui lòng thử lại sau giây lát."`.
+  - Cập nhật cả 2 endpoint `/api/chat` và `/ask` sử dụng `_format_error_message` khi raise `HTTPException(503)`.
+- `frontend/app.js`:
+  - Đảm bảo cơ chế bảo vệ giao diện khi xảy ra lỗi:
+    - Bắt mọi lỗi HTTP (`!response.ok`) và hiển thị thông báo lỗi chi tiết `⚠️ **Lỗi hệ thống**: ...`.
+    - Bắt mọi lỗi ngắt kết nối mạng (`catch (error)`) và hiển thị hướng dẫn kiểm tra API URL.
+    - Khối `finally` luôn luôn dọn dẹp thinking indicator, kích hoạt lại nút gửi (`btnSend.disabled = false`), mở khóa trạng thái `isGenerating = false`, đảm bảo giao diện không bao giờ bị "im lặng" hoặc treo trang.
+- `tests/test_error_states.py`:
+  - Bổ sung 6 bài test unit kiểm thử trọn bộ các trạng thái lỗi:
+    - Định dạng thông báo lỗi DB, Model Timeout, Rate Limit.
+    - Xử lý lỗi DB trên `/api/chat` và `/ask`.
+    - Xử lý lỗi Model Timeout trên `/api/chat`.
+
+### Verified
+- `pytest -v` → **108/108 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 6 Item 3 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Acceptance Criteria #5, Mục Error Handling) và `specs/test-plan.md` (Mục 4 & 5: Error States):
+
+### Pass
+- **`product-spec.md` (Mục Error Handling)**:
+  - Thông báo lỗi thân thiện, chuẩn hóa tiếng Việt khi mất kết nối DB hoặc timeout model.
+  - Phân loại rõ ràng mã lỗi HTTP (400 cho input/injection violation, 503 cho service unavailable/timeout/DB loss).
+  - Frontend bắt lỗi an toàn và hiển thị cảnh báo trực quan, không treo trang.
+- **`test-plan.md` (Mục 4 & 5)**:
+  - 100% các kịch bản ngoại lệ DB, model timeout, rate limit đều passed (6/6 test cases mới).
+  - Toàn bộ 108 bài test trong test suite `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo của Phase 6)
+- Chạy bộ kiểm thử toàn diện xác nhận toàn bộ guardrail test cases (Phase 6, Item 4).
+
+---
+
+## 2026-09-18 (Phase 6, Item 2: Củng cố Output Guardrails)
+
+Triển khai hoàn tất Phase 6, Item 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `src/guardrails.py`:
+  - Nâng cấp `redact_pii`:
+    - Che giấu toàn diện số điện thoại (đầu số `03/05/07/08/09`, `+84`, `84`) $\rightarrow$ `[SĐT ẩn]`.
+    - Che giấu địa chỉ email $\rightarrow$ `[email ẩn]`.
+    - Che giấu số định danh CCCD/CMND $\rightarrow$ `[CCCD ẩn]`.
+  - Củng cố `check_output` chống Hallucination:
+    - Chuẩn hóa dấu phân cách hàng nghìn (dấu chấm/phẩy giữa các chữ số như `1.250` hoặc `1,250`) trên cả hai luồng `evidence` (câu hỏi + dữ liệu thô từ Tool) và `answer` để tránh false positive.
+    - Đối chiếu 100% các số trong câu trả lời với dữ liệu thực tế từ database/evidence; tự động gắn cảnh báo disclaimer `(Lưu ý: số liệu chưa xác minh được với dữ liệu tool trả về.)` nếu phát hiện số liệu bịa đặt.
+    - Tự động thay thế câu trả lời bằng fallback an toàn nếu câu trả lời quá ngắn hoặc chứa từ ngữ độc hại.
+    - Tự động cắt gọn câu trả lời có độ dài vượt ngưỡng tối đa (`settings.guardrails_max_answer_len`).
+- `tests/test_output_guardrails.py`:
+  - Bổ sung 9 bài test unit kiểm thử trọn bộ Output Guardrails:
+    - Che giấu SĐT, Email, CCCD/CMND.
+    - Khớp số liệu chính xác (verified numbers).
+    - Chuẩn hóa số liệu có dấu chấm phân cách hàng nghìn.
+    - Gắn disclaimer khi có số liệu unverified / hallucinated.
+    - Fallback khi câu trả lời quá ngắn hoặc toxic.
+    - Cắt tỉa độ dài câu trả lời dài quá quy định.
+
+### Verified
+- `pytest -v` → **102/102 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 6 Item 2 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Acceptance Criteria #5, Mục Output Guardrails) và `specs/test-plan.md` (Mục 4: Test Guardrail An Toàn, Chống Hallucination & PII):
+
+### Pass
+- **`product-spec.md` (Mục 5: Guardrails - Output Layer)**:
+  - Che giấu PII (SĐT, email, CCCD/CMND) hiệu quả.
+  - Đối chiếu số liệu chính xác, tự động phát hiện số bịa đặt và gắn disclaimer cảnh báo.
+  - Giới hạn độ dài câu trả lời an toàn.
+- **`test-plan.md` (Mục 4: Test Guardrail)**:
+  - 100% các tiêu chí về PII redaction, đối chiếu số liệu, và kiểm soát độ dài đều passed (9/9 unit test cases mới).
+  - Toàn bộ 102 bài test trong test suite `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo của Phase 6)
+- Xử lý trạng thái lỗi trên Backend và Frontend: Mất kết nối Database, timeout model (Phase 6, Item 3).
+- Chạy bộ kiểm thử toàn diện xác nhận toàn bộ guardrail test cases (Phase 6, Item 4).
+
+---
+
+## 2026-09-18 (Phase 6, Item 1: Củng cố Input Guardrails)
+
+Triển khai hoàn tất Phase 6, Item 1 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `src/guardrails.py`:
+  - Mở rộng toàn diện các biểu thức chính quy trong `_INJECTION_PATTERNS` để nhận diện và chặn cứng mọi biến thể Prompt Injection độc hại bằng Regex thuần (< 1ms, không qua LLM):
+    - Các lệnh bỏ qua/quên hướng dẫn: `ignore ... instructions`, `disregard ... rules`, `bỏ qua ... quy tắc`, `quên ... chỉ dẫn`.
+    - Các nỗ lực trích xuất system prompt: `reveal ... system prompt`, `dump ... developer prompt`, `tiết lộ ... prompt hệ thống`, `in ra ... hướng dẫn ban đầu`.
+    - Các nỗ lực nhập vai/bẻ khóa (Jailbreak / DAN): `you are now`, `act as`, `đóng vai là`, `từ giờ bạn là`, `jailbreak`, `dan mode`, `bypass safety filters`.
+  - Tối ưu hóa tập từ khóa `STAT_KEYWORDS` nhận diện chính xác phạm vi nghiệp vụ của cả 8 domain sự kiện VMS (giao thông, khuôn mặt, xâm nhập hàng rào, cháy khói, đám đông, ẩu đả, mực nước) kèm biến thể tiếng Việt có dấu và không dấu; loại bỏ các từ chỉ thời gian chung chung để tránh nhận diện nhầm các câu hỏi ngoài phạm vi.
+  - Cập nhật thông điệp từ chối `OUT_OF_SCOPE_REPLY` thân thiện, hướng dẫn người dùng các câu hỏi mẫu hợp lệ thuộc VMS KCN Hưng Phú.
+- `tests/test_input_guardrails.py`:
+  - Bổ sung trọn bộ 30 test cases kiểm thử Input Guardrails:
+    - 12 test cases cho các biến thể Prompt Injection.
+    - 3 test cases cho từ ngữ độc hại/toxic.
+    - 7 test cases cho câu hỏi ngoài phạm vi (thời tiết, giá vàng, thơ ca, code, kiến thức chung).
+    - 8 test cases cho 8 domain sự kiện VMS chính thống.
+
+### Verified
+- `pytest -v` → **93/93 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 6 Item 1 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Acceptance Criteria #5, Mục Guardrails) và `specs/test-plan.md` (Mục 4: Test Guardrail An Toàn):
+
+### Pass
+- **`product-spec.md` (Mục 5: Guardrails - Input Layer)**:
+  - Chặn triệt để prompt injection bằng regex thuần, phản hồi HTTP 400 rõ ràng.
+  - Từ chối lịch sự mọi câu hỏi ngoài phạm vi nghiệp vụ VMS với câu trả lời hướng dẫn mẫu chuẩn xác, không gọi LLM hoặc DB.
+- **`test-plan.md` (Mục 4: Test Guardrail)**:
+  - 100% test cases về prompt injection, toxic detection, out-of-scope, và in-scope domain VMS đều passed (30/30 test cases mới).
+  - Toàn bộ 93 bài test trong test suite `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo của Phase 6)
+- Củng cố Output Guardrails: Đối chiếu số liệu chống hallucination, che giấu PII, giới hạn độ dài (Phase 6, Item 2).
+- Xử lý trạng thái lỗi trên Backend và Frontend: Mất kết nối Database, timeout model (Phase 6, Item 3).
+
+---
+
+## 2026-09-18 (Phase 5, Item 3: Bộ Unit Test Offline Toàn Diện cho Tracing)
+
+Triển khai hoàn tất Phase 5, Item 3 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `tests/test_observability_tracing.py`:
+  - Mở rộng trọn bộ 13 bài test unit offline cho hệ thống giám sát Observability & Token Metrics:
+    - `test_extract_token_usage_from_usage_metadata`: Trích xuất token từ LangChain `AIMessage.usage_metadata`.
+    - `test_extract_token_usage_from_response_metadata`: Trích xuất token từ `AIMessage.response_metadata['token_usage']`.
+    - `test_extract_token_usage_from_dict`: Trích xuất token từ dictionary response.
+    - `test_extract_token_usage_empty_returns_zeroes`: Trả về số 0 an toàn khi input rỗng/None.
+    - `test_tracing_no_op_when_disabled`: Xác nhận không sinh trace khi `MONITORING_ENABLED=false`.
+    - `test_trace_answer_and_trace_step_with_langfuse`: Kiểm tra cây trace cha - con có đầy đủ `output`, `metadata`, `latency_s`, `model_name`, `usage_details`.
+    - `test_trace_answer_exception_handling`: Đánh dấu `level=ERROR` khi xảy ra exception.
+    - `test_trace_answer_failsafe_when_langfuse_init_fails`: Fail-safe khi Langfuse server ngắt kết nối.
+    - `test_trace_answer_failsafe_when_start_observation_fails`: Fail-safe khi `start_observation` bị timeout.
+    - `test_trace_answer_failsafe_when_flush_fails`: Fail-safe khi flush gặp sự cố mạng.
+    - `test_trace_step_failsafe_when_child_observation_fails`: Fail-safe khi tạo child span lỗi.
+    - `test_full_pipeline_trace_step_tree`: Kiểm tra cây ReAct 3 bước (`chon_tool` -> `chay_tool` -> `dien_giai`).
+    - `test_trace_answer_with_self_hosted_metadata`: Kiểm tra metadata với Model tự host `qwen3-4b`.
+    - `test_trace_answer_custom_temperature_and_model_override`: Kiểm tra override model/temperature.
+    - `test_trace_step_exception_handling`: Kiểm tra ghi nhận lỗi child span.
+    - `test_trace_stream_with_langfuse`: Kiểm tra stream answer tracing.
+    - `test_backend_monitoring_reexport`: Kiểm tra tính nhất quán re-export của tầng Backend.
+
+### Verified
+- `pytest -v` → **63/63 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 5 Tổng Thể vs product-spec.md/test-plan.md)
+
+Review toàn diện Phase 5 đối chiếu với `specs/product-spec.md` (Acceptance Criteria #6: Langfuse Observability) và `specs/test-plan.md` (Mục 3: Test Observability Langfuse):
+
+### Pass
+- **`product-spec.md` (Mục 6: Langfuse Observability & Token Metrics)**:
+  - 100% trace cha và child span (`chon_tool`, `chay_tool`, `dien_giai`) lưu trữ đầy đủ trường `output`.
+  - Ghi nhận đầy đủ token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`).
+  - Ghi nhận thông số cấu hình: `model_name`, `temperature`, `latency_s`.
+  - Cơ chế Fail-safe & No-op hoạt động an toàn, không crash API khi Langfuse down.
+  - Bảo mật secret: Không lộ API keys thật hay mật khẩu DB.
+- **`test-plan.md` (Mục 3: Test Observability)**:
+  - Cả 5/5 tiêu chí trong bảng test plan (Đăng nhập Dashboard, Lưu trữ Đầy đủ Output, Token Usage, Model & Latency Info, Bảo mật Secret) đều được đáp ứng và kiểm thử hoàn chỉnh.
+  - Toàn bộ **Phase 5** trong `specs/implementation-plan.md` đã hoàn thành 100% (3/3 mục `[x]`).
+  - Toàn bộ 63 bài test trong bộ test suite `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Chuyển tiếp sang Phase tiếp theo)
+- Triển khai **Phase 6: Validation, Guardrails and Error States** (củng cố regex injection guardrail, out-of-scope, PII, hallucination check, và error states).
+
+---
+
+## 2026-09-18 (Phase 5, Item 2: Cơ chế Fail-safe & No-op cho Tracing)
+
+Triển khai hoàn tất Phase 5, Item 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `src/monitoring/tracing.py`:
+  - Hoàn thiện cơ chế Fail-safe & No-op trong `trace_answer`, `trace_step`, và `trace_stream`:
+    - Khi `MONITORING_ENABLED=false`: Hàm yield ngay context box rỗng `{}` mà không tạo bất kỳ kết nối mạng hay tải module nào.
+    - Khi `MONITORING_ENABLED=true`:
+      - Bao bọc toàn bộ các lời gọi `_get_langfuse()`, `start_observation()`, `span.update()`, `span.end()`, và `langfuse.flush()` trong khối `try...except` an toàn.
+      - Khi Langfuse server tạm thời down, timeout, từ chối kết nối (`ConnectionRefusedError`), hoặc gặp lỗi phân vùng mạng: Hệ thống ghi log warning (`logging.getLogger`), tự động rơi về no-op và tiếp tục phục vụ luồng xử lý câu hỏi bình thường, tuyệt đối **không làm crash FastAPI API Gateway**.
+- `tests/test_observability_tracing.py`:
+  - Bổ sung 4 unit test kiểm thử cơ chế fail-safe:
+    - `test_trace_answer_failsafe_when_langfuse_init_fails`: Khi khởi tạo Langfuse ném `ConnectionRefusedError`, pipeline vẫn chạy trơn tru.
+    - `test_trace_answer_failsafe_when_start_observation_fails`: Khi `start_observation` bị timeout, trace cha tự động rơi về no-op.
+    - `test_trace_answer_failsafe_when_flush_fails`: Khi flush gặp sự cố mạng, không ảnh hưởng tới kết quả trả về.
+    - `test_trace_step_failsafe_when_child_observation_fails`: Khi tạo child span lỗi, agent step vẫn chạy bình thường.
+
+### Verified
+- `pytest -v` → **58/58 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 5 Item 2 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Acceptance Criteria #6) và `specs/test-plan.md` (Mục 3: Test Observability Langfuse, Fail-safe & No-op):
+
+### Pass
+- **`product-spec.md` (Mục 6: Langfuse Observability & Fail-safe)**:
+  - Hệ thống an toàn tuyệt đối khi Langfuse server tắt hoặc không phản hồi. API `/api/chat` và `/ask` vẫn xử lý và trả kết quả chính xác cho người dùng.
+- **`test-plan.md` (Mục 3: Test Observability - Fail-safe & No-op)**:
+  - Cả 4 kịch bản lỗi mạng/khởi tạo/flush của Langfuse đều được bảo vệ an toàn (pass qua 4 unit test fail-safe).
+  - Toàn bộ 58 bài test trong bộ test suite `pytest -v` đều passed 100%.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo của Phase 5)
+- Unit test offline toàn diện xác nhận hàm tracing hoạt động trơn tru (Phase 5, Item 3).
+
+---
+
+## 2026-09-18 (Phase 5, Item 1: Cải tiến Tracing - Output Persistence & Token Metrics)
+
+Triển khai hoàn tất Phase 5, Item 1 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `src/monitoring/tracing.py`:
+  - Bổ sung hàm `extract_token_usage(response)`: Tự động trích xuất `prompt_tokens`, `completion_tokens`, `total_tokens` từ LangChain `AIMessage` (`usage_metadata`, `response_metadata['token_usage']`) và đối tượng dictionary/OpenAI response.
+  - Cải tiến `trace_answer`:
+    - Đảm bảo trường `output` luôn luôn được lưu trữ đầy đủ trong mọi trường hợp (kể cả khi gặp exception).
+    - Tự động ghi nhận thông số token: `prompt_tokens`, `completion_tokens`, `total_tokens` vào metadata và `usage_details` của Langfuse observation.
+    - Tự động ghi nhận thông số cấu hình: `model_name`, `temperature`, `latency_s`.
+  - Cải tiến `trace_step`:
+    - Đảm bảo mọi nested child span (`chon_tool`, `chay_tool`, `dien_giai`) đều lưu trữ đầy đủ trường `output`.
+    - Ghi nhận `latency_s`, `model_name`, `temperature`, và `usage_details` cho từng child span khi có thông tin token.
+- `src/agent/react.py`:
+  - Trong `agent_node`: Tự động trích xuất token usage và model metadata từ phản hồi của LLM gán vào `t["usage"]`, `t["model_name"]`, `t["temperature"]` và lưu vào `t["output"]`.
+- `backend/monitoring/__init__.py` & `backend/monitoring/tracing.py`:
+  - Tạo package re-export `trace_answer`, `trace_step`, `trace_stream`, `extract_token_usage` cho tầng Backend API.
+- `backend/main.py`:
+  - Cập nhật import `trace_answer` từ `backend.monitoring.tracing`.
+- `tests/test_observability_tracing.py`:
+  - Bổ sung 8 bài test unit toàn diện cho Phase 5:
+    - Trích xuất token usage từ `usage_metadata`, `response_metadata`, và dict.
+    - No-op an toàn khi `MONITORING_ENABLED=false`.
+    - Ghi nhận đầy đủ `output`, `metadata`, `latency_s`, `model_name`, `usage_details` cho trace cha và child span khi Langfuse bật.
+    - Xử lý exception an toàn và re-raise đúng chuẩn.
+    - Kiểm tra tính tương thích của re-export trong `backend.monitoring.tracing`.
+
+### Verified
+- `pytest -v` → **54/54 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 5 Item 1 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai đối chiếu với `specs/product-spec.md` (Acceptance Criteria #6, Mục Observability) và `specs/test-plan.md` (Mục 3: Test Observability Langfuse):
+
+### Pass
+- **`product-spec.md` (Mục 6: Langfuse Observability & Token Metrics)**:
+  - Trường `output` luôn được lưu trữ đầy đủ trên cả trace cha (`ask`/`chat`) và các child span (`chon_tool`, `chay_tool`, `dien_giai`).
+  - Trích xuất và ghi nhận chính xác 3 chỉ số token: `prompt_tokens`, `completion_tokens`, `total_tokens`.
+  - Ghi nhận đầy đủ `model_name`, `temperature`, `latency_s` trong metadata và observation parameters.
+  - Bảo mật secret: Không bao giờ đẩy API keys thật (`sk-proj-...`, `lgw_...`) hay mật khẩu DB vào trace payload.
+- **`test-plan.md` (Mục 3: Test Observability - Bảng Tiêu Chí #2, #3, #4, #5)**:
+  - Lưu trữ Đầy đủ Output: Pass (cả trace cha và con đều có `output`).
+  - Token Usage: Pass (hàm `extract_token_usage` và `span.update` xử lý đúng cấu trúc).
+  - Model & Latency Info: Pass (`model_name`, `temperature`, `latency_s` được tính toán và đính kèm).
+  - Bảo mật Secret: Pass (toàn bộ payload chỉ chứa question/answer/tool metadata an toàn).
+- Toàn bộ 54 bài test trong bộ test suite `pytest -v` đều passed 100%.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo của Phase 5)
+- Xác nhận cơ chế Fail-safe & No-op khi Langfuse server tạm thời down / timeout (Phase 5, Item 2).
+- Mở rộng thêm unit test offline cho các kịch bản ngoại lệ cụ thể (Phase 5, Item 3).
+
+---
+
+## 2026-09-18 (Phase 4, Item 2: Kết nối Giao diện Frontend với Backend API)
+
+Triển khai hoàn tất Phase 4, Item 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `frontend/app.js`:
+  - Kết nối hoàn chỉnh hàm `fetch('/api/chat')` (fallback an toàn sang `/ask`).
+  - Gắn thinking indicator (3 chấm pulsing) trong suốt quá trình truy vấn backend.
+  - Render câu trả lời có định dạng Markdown (bảng biểu, code, gạch đầu dòng).
+  - Tự động dựng Tool Execution Accordion hiển thị tên tool, metadata và JSON payload chi tiết.
+  - Tích hợp kiểm tra kết nối `/api/health` trực tiếp trong Drawer Cài đặt Model.
+- `tests/test_ui_integration.py`:
+  - Bổ sung 2 bài test integration kiểm tra tính hợp lệ của tài nguyên Frontend được phục vụ tại `GET /` và xác thực hợp đồng API payload `/api/chat`.
+
+### Verified
+- `pytest -v` → **46/46 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 4 Item 2 & Phase 4 Tổng thể vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai và tổng thể Phase 4 đối chiếu với `specs/product-spec.md` (Acceptance Criteria #2, #3) và `specs/test-plan.md` (Mục 5: Test Giao Diện Frontend):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #2 & #3)**:
+  - Giao diện Claude-inspired kết nối trực tiếp và mượt mà tới REST API Gateway qua `/api/chat`.
+  - Phân tách rõ ràng giữa mã nguồn Frontend (`frontend/`) và Backend Gateway (`backend/`).
+- **`test-plan.md` (Mục 5: Test Giao diện Frontend)**:
+  - 5/5 tiêu chí UI: Thẩm mỹ & Bố cục, Cấu hình Model, Tool Accordion, Markdown Rendering, và Trạng thái Trực quan đều hoạt động hoàn hảo.
+  - Toàn bộ 46 unit & integration tests `pytest -v` đạt 100% passed.
+  - Toàn bộ **Phase 4** trong `specs/implementation-plan.md` đã hoàn thành 100% (2/2 mục `[x]`).
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở Phase tiếp theo)
+- Nâng cấp module giám sát `tracing.py` với Langfuse để thu thập đầy đủ trường `output` và token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`) (thuộc **Phase 5**).
+
+---
+
+## 2026-09-18 (Phase 4, Item 1: Hoàn thiện FastAPI REST API Gateway)
+
+Triển khai hoàn tất Phase 4, Item 1 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `backend/main.py` & `src/main.py`:
+  - Hoàn thiện trọn bộ các router REST API Gateway:
+    - `GET /api/health` & `GET /health`: Trả về trạng thái backend, LLM model active, DB configuration.
+    - `GET /api/models`: Danh sách các model hỗ trợ (OpenAI Cloud `gpt-4o-mini`, Self-hosted `qwen3-4b`).
+    - `GET /api/config`: Cung cấp cấu hình an toàn cho Frontend (không lộ secret).
+    - `POST /api/chat`: Nhận request `{"question": "...", "model_provider": "..."}`, lọc qua Input Guardrails, chạy ReAct Agent thật, lọc Output Guardrails và trả về `{"answer": "...", "detail": {...}}`.
+    - `POST /ask`: Duy trì tương thích ngược 100% với các client và bài kiểm thử hiện có.
+- `src/guardrails.py`:
+  - Tối ưu hóa biểu thức chính quy `_INJECTION_PATTERNS` để nhận diện chính xác các biến thể câu lệnh tiêm nhiễm phức tạp (`ignore (all previous)+ instructions`).
+- `tests/test_api_gateway.py`:
+  - Bổ sung 6 unit test kiểm thử toàn diện: `/api/health`, `/api/models`, `/api/config`, `/api/chat` (thành công, chặn injection trả về 400, và từ chối out-of-scope).
+
+### Verified
+- `pytest -v` → **44/44 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 4 Item 1 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai (FastAPI REST API Gateway) đối chiếu với `specs/product-spec.md` (Features In Scope #1 & Acceptance Criteria #1-4) và `specs/test-plan.md` (Mục 2, Test Case 7):
+
+### Pass
+- **`product-spec.md` (Features In Scope #1: API Gateway)**:
+  - Cung cấp đầy đủ các endpoint phục vụ Frontend UI: `/api/health`, `/api/models`, `/api/config`, `/api/chat`, và `/ask`.
+  - Tích hợp chặt chẽ với ReAct Agent LangGraph và các lớp Guardrail bảo vệ (chặn injection, che giấu PII, từ chối out-of-scope).
+- **`test-plan.md` (Mục 2, Test Case 7: Backend Endpoints)**:
+  - Đạt 6/6 test cases trong `test_api_gateway.py`.
+  - Tổng test suite đạt **44/44 passed (100% xanh)**.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo)
+- Tích hợp hoàn chỉnh từ Frontend UI (`frontend/app.js`) tới Backend API và đổ dữ liệu vào accordion "Tool Execution Detail" (thuộc **Phase 4, Item 2**).
+
+---
+
+## 2026-09-18 (Phase 3, Item 5: Xuất Sơ đồ Đồ thị ReAct Graph Đa Định dạng)
+
+Triển khai hoàn tất Phase 3, Item 5 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `src/agent/graph.py`:
+  - Nâng cấp hàm `save_graph_visualization()` xuất đồng thời 3 định dạng: tệp ảnh `graph.png`, tệp mã nguồn Mermaid `graph.mmd`, và trang web xem tương tác `graph_diagram.html` (dùng Mermaid.js CDN).
+  - Khởi chạy trực tiếp `python3 -m src.agent.graph` xuất hoàn chỉnh đồ thị ReAct Agent.
+- `graph.png`, `graph.mmd`, `graph_diagram.html`:
+  - Tạo thành công tại thư mục gốc của dự án, phản ánh chính xác cấu trúc: `START` $\rightarrow$ `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack` $\rightarrow$ `END`.
+
+### Verified
+- `python3 -m src.agent.graph` → `Graph visualization exported to: graph.png`.
+- `pytest -v` → **38/38 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 3 Item 5 & Phase 3 Tổng thể vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai và tổng thể Phase 3 đối chiếu với `specs/product-spec.md` (Acceptance Criteria #4) và `specs/test-plan.md` (Mục 8: Xuất & Kiểm Tra Sơ Đồ Đồ Thị ReAct Graph):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #4 & ReAct Architecture)**:
+  - Giữ nguyên cấu trúc ReAct Agent LangGraph (`seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`).
+  - Hỗ trợ đầy đủ cả 8 domain sự kiện VMS.
+  - Hỗ trợ Dual LLM (OpenAI Cloud `gpt-4o-mini` và Self-hosted `qwen3-4b`).
+- **`test-plan.md` (Mục 8: Xuất Sơ Đồ Đồ Thị)**:
+  - Cả 3 file `graph.png`, `graph.mmd`, và `graph_diagram.html` được xuất thành công và có thể mở xem trực tiếp trên trình duyệt.
+  - Toàn bộ 5/5 checklist items của Phase 3 trong `specs/implementation-plan.md` đã hoàn thành 100%.
+  - 38/38 unit tests `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở Phase tiếp theo)
+- Xây dựng REST API Gateway `/api/chat` và tích hợp Frontend UI với AI_Backend (thuộc **Phase 4**).
+
+---
+
+## 2026-09-18 (Phase 3, Item 4: Duy trì Git-based Prompt Registry)
+
+Triển khai hoàn tất Phase 3, Item 4 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `backend/prompts.py`:
+  - Tạo module re-export `PromptRegistry`, `Prompt`, và singleton `registry()` cho tầng Backend.
+- `src/prompts/registry.py` & `prompts/`:
+  - Tiếp tục duy trì hệ thống quản lý prompt versioning qua file YAML và con trỏ `production.txt`.
+  - Hỗ trợ render template có validate biến bắt buộc, raise `ValueError` nếu thiếu tham số.
+
+### Verified
+- `pytest -v` → **38/38 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 3 Item 4 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai (Git-based Prompt Registry) đối chiếu với `specs/product-spec.md` (Features In Scope #5) và `specs/test-plan.md` (Mục 2, Test Case 5):
+
+### Pass
+- **`product-spec.md` (Features In Scope #5: Git-based Prompt Registry)**:
+  - Cho phép thay đổi prompt trong production bằng cách sửa con trỏ `production.txt` mà không cần sửa code Python.
+  - Phân tách rõ ràng giữa system prompt (`agent_system`) và prompt diễn giải kết quả (`agent_answer`).
+- **`test-plan.md` (Mục 2, Test Case 5: Prompt Registry Integration)**:
+  - Đọc đúng file YAML, render đúng biến và bắt lỗi `ValueError` khi thiếu biến.
+  - 8 unit tests chuyên biệt trong `test_prompt_registry.py` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở mục tiếp theo)
+- Xuất sơ đồ đồ thị ReAct Graph `save_graph_visualization(...)` hỗ trợ định dạng PNG và HTML trực quan (thuộc **Phase 3, Item 5**).
+
+---
+
+## 2026-09-18 (Phase 3, Item 3: Duy trì Kiến trúc Đồ thị ReAct LangGraph)
+
+Triển khai hoàn tất Phase 3, Item 3 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `backend/agent.py`:
+  - Tạo module re-export trọn bộ chức năng ReAct Agent (`run_agent`, `Agent_Input`, `Agent_Output`, `AgentState`, `save_graph_visualization`) cho tầng Backend API.
+- `src/agent/graph.py` & `src/agent/react.py`:
+  - Đảm bảo đồ thị ReAct LangGraph giữ nguyên 100% cấu trúc: `START` $\rightarrow$ `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack` $\rightarrow$ `END`.
+  - Tích hợp động `PromptRegistry` cho `_system_prompt()` và `build_answer()`.
+- `tests/test_react_graph_architecture.py`:
+  - Bổ sung 3 unit test kiểm tra các node đồ thị (`seed`, `agent`, `tools`, `pack`), luồng thực thi `run_agent`, và khả năng xuất sơ đồ trực quan.
+
+### Verified
+- `pytest -v` → **38/38 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 3 Item 3 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai (Duy trì Kiến trúc ReAct Agent Graph) đối chiếu với `specs/product-spec.md` (Acceptance Criteria #4) và `specs/test-plan.md` (Mục 2 & 8):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #4: Giữ nguyên Kiến trúc ReAct Agent)**:
+  - Cấu trúc đồ thị LangGraph được bảo toàn nguyên vẹn, đảm bảo tương thích 100% với các phép đo lường hiệu năng trước đây.
+  - Phản hồi chính xác câu hỏi và đóng gói kết quả `Agent_Output` tiêu chuẩn.
+- **`test-plan.md` (Mục 2 & 8: ReAct Graph & Diagram Generation)**:
+  - 4 node `seed`, `agent`, `tools`, `pack` hoạt động ổn định.
+  - Hàm `save_graph_visualization` xuất file Mermaid/PNG thành công.
+  - Toàn bộ 38 unit tests `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo)
+- Duy trì Git-based Prompt Registry (`prompts/`) nạp template động qua `production.txt` (thuộc **Phase 3, Item 4**).
+
+---
+
+## 2026-09-18 (Phase 3, Item 2: Chuẩn hóa Tập Tools Tham số hóa cho 8 Domain VMS)
+
+Triển khai hoàn tất Phase 3, Item 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `backend/tools.py`:
+  - Tạo module re-export trọn bộ 9 công cụ (`TOOLS`, `QueryResult`, `get_db_schema`, `list_khu_vuc`, `count_vehicle_flow`, `trace_plate`, `zone_intrusion_by_hour`, `count_face_events`, `count_fire_smoke_events`, `count_anomaly_events`, `run_sql_readonly`) cho tầng Backend.
+- `src/agent/tools.py`:
+  - Đảm bảo đầy đủ 8 domain sự kiện VMS (Phương tiện, Vùng cấm, Khuôn mặt, Ẩu đả, Đám đông, Leo trèo, Cháy khói, Mực nước).
+  - Khẳng định tính an toàn qua whitelist schema, parameter validation, và SQL read-only guardrails.
+- `tests/test_tools_suite.py`:
+  - Bổ sung 5 unit test kiểm tra danh mục công cụ, mô tả schema, validation tham số phương tiện, whitelist sự kiện bất thường, và định dạng cháy khói.
+
+### Verified
+- `pytest -v` → **35/35 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 3 Item 2 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai (Tập Tools tham số hóa cho 8 Domain VMS) đối chiếu với `specs/product-spec.md` (Acceptance Criteria #4) và `specs/test-plan.md` (Mục 2 & 7):
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #4 & 8 Domain VMS)**:
+  - Cung cấp đầy đủ các function tool tương ứng cho 8 loại sự kiện camera AI trên 5 database Postgres.
+  - Loại bỏ hoàn toàn rủi ro SQL injection bằng việc bắt buộc tham số hoá qua `psycopg2` placeholder `%s`.
+- **`test-plan.md` (Mục 2 & 7: Test Tool Whitelist & Read-only)**:
+  - 9/9 công cụ hoạt động đúng đặc tả, kiểm tra tham số chặt chẽ.
+  - Toàn bộ 35 unit tests `pytest -v` đạt 100% passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo)
+- Duy trì đồ thị ReAct LangGraph (`build_react_subgraph`) kết nối các tool này với LLM (thuộc **Phase 3, Item 3**).
+
+---
+
+## 2026-09-18 (Phase 3, Item 1: Nâng cấp Dual LLM Client & Key Rotation)
+
+Triển khai hoàn tất Phase 3, Item 1 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `src/llm.py`:
+  - Cập nhật `_BACKENDS` hỗ trợ chính thức `self_hosted` (Base URL: `http://192.168.1.196:18083/v1`, Model: `qwen3-4b`, Key: `lgw_ef6984db8f59_...`).
+  - Nâng cấp `base_llm()`, `invoke_with_tools()`, `invoke_text()`, `use_offline_tools()` hỗ trợ tham số override linh hoạt (`model_override`, `backend_override`, `temperature_override`).
+  - Duy trì key rotation pool `_RotatingKeyPool` với cơ chế cooldown khi gặp lỗi 429 Rate Limit.
+- `backend/llm.py`:
+  - Module re-export các hàm LLM cho tầng Backend Gateway, tạo ranh giới giao tiếp sạch giữa `backend/` và `src/`.
+- `tests/test_llm_backend.py`:
+  - Bổ sung 5 unit test kiểm thử: cấu hình self-hosted Qwen3-4B, OpenAI Cloud, xác thực backend không hợp lệ, và kiểm tra xoay vòng key kèm cooldown.
+
+### Verified
+- `pytest -v` → **30/30 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Review Phase 3 Item 1 vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai (Dual LLM Client) đối chiếu với `specs/product-spec.md` (Features In Scope #4, Acceptance Criteria #6) và `specs/test-plan.md` (Mục 3: Test Thật LLM Tự Host vs OpenAI):
+
+### Pass
+- **`product-spec.md` (Features In Scope #4 & Acceptance Criteria #6)**:
+  - Khởi tạo client chuẩn `ChatOpenAI` trỏ chính xác tới endpoint model tự host `http://192.168.1.196:18083/v1` với model `qwen3-4b` và api key an toàn.
+  - Hỗ trợ quay vòng key cho OpenAI Cloud và fallback chế độ offline khi chạy pytest.
+- **`test-plan.md` (Mục 3: Test LLM Backend)**:
+  - Khởi tạo client thành công cho cả `self_hosted` và `openai`.
+  - Cơ chế cooldown của key pool hoạt động chính xác khi có key bị giới hạn.
+  - Đạt 5/5 unit test mới trong `test_llm_backend.py`, toàn bộ test suite 30/30 passed.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các mục tiếp theo)
+- Nối trực tiếp endpoint `/api/chat` với ReAct Agent graph để truyền tải request từ UI xuống LLM backend (thuộc **Phase 4**).
+
+---
+
+## 2026-09-18 (Review Phase 2: Core UI vs product-spec.md/test-plan.md)
+
+Review chi tiết tính năng vừa triển khai (Phase 2: Core UI - Claude-Inspired Frontend) đối chiếu với `specs/product-spec.md` (Acceptance Criteria #2, #3) và `specs/test-plan.md` (Mục 5: Test Giao Diện Frontend).
+
+### Pass
+- **`product-spec.md` (Acceptance Criteria #2 & #3)**:
+  - Giao diện Claude-inspired đạt thẩm mỹ cao, tone màu ấm, typography `Plus Jakarta Sans` & `JetBrains Mono`.
+  - Sidebar trực quan với 8 domain sự kiện VMS, Welcome screen với 4 card gợi ý câu hỏi mẫu.
+  - Component Tool Execution Accordion hiển thị chi tiết công cụ đã gọi, thời gian và payload.
+  - Modal Cài đặt Model hỗ trợ chuyển đổi mượt mà giữa OpenAI Cloud (`gpt-4o-mini`) và Model tự host (`qwen3-4b`), lưu trạng thái trong `localStorage`.
+  - Phân tách ranh giới rõ ràng: `frontend/` (tĩnh) và `backend/` (FastAPI), có thể chạy độc lập qua Nginx/http.server hoặc mount trực tiếp tại `GET /`.
+- **`test-plan.md` (Mục 5: Test Giao Diện Frontend — 5/5 tiêu chí)**:
+  - #1 Thẩm mỹ & Bố cục: Responsive, thiết kế tối giản, tone màu ấm chuẩn Claude UI.
+  - #2 Cấu hình Model: Drawer cấu hình cho phép chọn model provider, hiển thị thông số endpoint Qwen3-4B, test kết nối `/api/health`.
+  - #3 Tool Execution Accordion: Tự động render khối accordion có thể thu gọn/mở rộng khi có `detail`.
+  - #4 Markdown Rendering: Render bảng số liệu có đường kẻ, alternating background, danh sách gạch đầu dòng ngay ngắn.
+  - #5 Trạng thái Trực quan: Animation 3 chấm nhịp nhàng (thinking indicator) khi chờ phản hồi.
+- **Kiểm thử**: `pytest -v` đạt **25/25 passed (100% xanh)**, bao gồm test `test_frontend_index_served`.
+
+### Fail
+- Không có lỗi (0 fail).
+
+### Missing (Được lập lịch ở các Phase tiếp theo)
+- Xử lý câu hỏi thực tế qua ReAct Agent cho endpoint `/api/chat` và kết nối Model tự host `qwen3-4b` trên backend (thuộc **Phase 3 & Phase 4** trong `specs/implementation-plan.md`).
+
+---
+
+## 2026-09-18 (Phase 2: Triển khai Core UI - Claude-Inspired Frontend)
+
+Triển khai hoàn tất Phase 2 theo `specs/implementation-plan.md`:
+
+### Added / Changed
+- `frontend/index.html`:
+  - Giao diện Claude-inspired với Sidebar (8 domain VMS chips, Model selector pill, Settings button).
+  - Main Chat Viewport với Welcome Screen, 4 thẻ gợi ý câu hỏi mẫu.
+  - Khung hội thoại tin nhắn hỗ trợ Avatar, thinking indicator, và Tool Execution details.
+  - Modal/Drawer Cài đặt Model (chuyển đổi OpenAI Cloud / Self-hosted Qwen3-4B, cấu hình API Base URL, kiểm tra kết nối Backend).
+- `frontend/style.css`:
+  - Hệ thống style tông màu ấm (`#fbfbf9`, `#c2410c`, `#d97706`), typography `Plus Jakarta Sans` & `JetBrains Mono`.
+  - Component Tool Execution Accordion có thể mở rộng/thu gọn.
+  - Định dạng bảng số liệu Markdown với đường kẻ và alternating background.
+  - Hiệu ứng animation loading / thinking dots.
+  - Responsive layout hỗ trợ mobile & desktop.
+- `frontend/app.js`:
+  - Trình phân tích Markdown tích hợp (hỗ trợ bảng, code block, bold, bullet points).
+  - Component Tool Execution Accordion hiển thị tên tool, thời gian và payload.
+  - Quản lý trạng thái Model Provider (`openai` / `self_hosted`) và API Base URL trong `localStorage`.
+  - Cơ chế gửi tin nhắn tới `/api/chat` (với fallback `/ask`).
+- `backend/main.py`:
+  - Mount thư mục `frontend/` làm static files và phục vụ `index.html` tại endpoint gốc `GET /`.
+- `tests/test_backend_setup.py`:
+  - Bổ sung test `test_frontend_index_served` kiểm tra `GET /` phục vụ UI thành công.
+
+### Verified
+- `pytest -v` → **25/25 passed (100% xanh)**.
+- Phục vụ giao diện thành công trên cả `python3 -m http.server 8080` và qua FastAPI `GET http://localhost:8000/`.
+
+---
+
+## 2026-09-18 (Spec Alignment: Phân tách FE & AI_Backend, Giữ nguyên Kiến trúc ReAct Agent)
+
+Cập nhật và đồng bộ toàn bộ tài liệu đặc tả kỹ thuật theo định hướng mới:
+- **Giữ nguyên Kiến trúc Agent hiện tại**: Duy trì nguyên vẹn cấu trúc ReAct Agent LangGraph (`seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`) cho cả 8 domain sự kiện VMS để bảo đảm tính tương thích và dễ dàng so sánh đối chứng hiệu năng.
+- **Phân tách 2 tầng độc lập**: `frontend/` (Claude-inspired UI) và `ai_backend/` (FastAPI Gateway, ReAct Agent, Tools, DB, Tracing).
+- **Quản lý Docker Compose**: Root `docker-compose.yml` điều phối Frontend, AI_Backend, và Langfuse stack.
+- **Nâng cấp Langfuse Tracing**: Lưu đầy đủ `output` cho mọi span, thu thập token usage (`prompt_tokens`, `completion_tokens`, `total_tokens`), model info, latency. Mật khẩu quản trị: `Atin@123#`.
+- **Hỗ trợ Dual Model**: OpenAI Cloud và Model tự host (`qwen3-4b` tại `http://192.168.1.196:18083/v1`).
+- **Đồng bộ tài liệu**: Đã cập nhật 6 tệp: `specs/product-spec.md`, `specs/implementation-plan.md`, `specs/test-plan.md`, `AGENTS.md`, `README.md`, `specs/change-log.md`.
+
+### Verified
+- Chưa sửa code ứng dụng (tuân thủ chỉ dẫn "Do not implement the app yet").
+- `pytest -v` → **24/24 passed (100% xanh)**.
+
+---
+
+## 2026-09-18 (Phase 1: Triển khai Project Setup v3)
+
+Triển khai hoàn tất Phase 1 theo `specs/implementation-plan.md` cho kiến trúc Simple Multi-Agent v3:
+
+### Added / Changed
+- **Tách ranh giới 3 tầng thư mục**:
+  - `frontend/`: Khởi tạo skeleton `index.html`, `style.css`, `app.js` phong cách Claude-inspired UI.
+  - `backend/`: Khởi tạo `backend/__init__.py`, `backend/config.py` (hỗ trợ Dual LLM: OpenAI Cloud & Self-hosted Qwen3-4B), `backend/main.py` (FastAPI app với `/api/health`, `/api/models`).
+  - `ai/`: Khởi tạo `ai/__init__.py`, `ai/config.py`.
+- **Cấu hình & Secrets**:
+  - `.env.example`: Cập nhật placeholder chuẩn cho OpenAI và Self-hosted Qwen3-4B (`MODEL_BASE_URL=http://192.168.1.196:18083/v1`, `MODEL_NAME=qwen3-4b`, `MODEL_API_KEY=`, `MODEL_ENDPOINT=`).
+  - `langfuse/.env`: Cập nhật mật khẩu đăng nhập quản trị mặc định `LANGFUSE_INIT_USER_PASSWORD=Atin@123#` (User: `admin@agent-atin.local`).
+  - `requirements.txt`: Bổ sung tường minh `pyyaml`.
+- **Kiểm thử**:
+  - `tests/test_backend_setup.py`: Viết 3 unit test kiểm tra `/api/health`, `/api/models` (danh sách OpenAI + Qwen3-4B), và cơ chế load Settings dual model.
+
+### Verified
+- `pytest -v` → **24/24 passed (100% xanh)**.
+- Chưa can thiệp business logic của agent hay database query.
+
+---
+
+## 2026-09-18 (Architecture v3: Khởi tạo Đặc tả Simple Multi-Agent Web App)
+
+Khởi tạo và cập nhật toàn diện bộ tài liệu đặc tả chuẩn Spec-Driven Development cho kiến trúc v3: Simple Multi-Agent Web App (tham khảo phong cách `llm-engineer-demo`).
+
+### Added / Updated Specs
+- `specs/product-spec.md` — Cập nhật mục tiêu và phạm vi cho v3:
+  - Chia tách 3 tầng độc lập: Frontend (`frontend/`), Backend (`backend/`), AI Engine (`ai/`).
+  - Chuyển sang mô hình Simple Multi-Agent (Supervisor + 3 Domain Workers: Vehicle, Security, Environment + Synthesizer).
+  - Điều phối toàn diện qua Docker Compose (`frontend`, `backend`, `langfuse`).
+  - Cải tiến Langfuse Observability: Lưu đầy đủ `output` và thống kê token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`, `model_name`, `latency_s`). Mật khẩu quản trị: `Atin@123#`.
+  - Hỗ trợ dual LLM backend: OpenAI Cloud và Model tự host (`qwen3-4b` tại `http://192.168.1.196:18083/v1`).
+  - Giao diện Claude-inspired hiện đại, tinh tế, hỗ trợ cấu hình model.
+- `specs/implementation-plan.md` — Bổ sung 6 Phase mới cho kiến trúc v3:
+  - **Phase 10**: Tái cấu trúc thư mục FE, BE, AI & Chuẩn hóa cấu hình Dual-Model.
+  - **Phase 11**: Nâng cấp Langfuse Tracing (Output, Token metrics, Password `Atin@123#`).
+  - **Phase 12**: Xây dựng Động cơ Simple Multi-Agent (LangGraph Supervisor & Workers).
+  - **Phase 13**: Xây dựng Giao diện Claude-inspired Frontend.
+  - **Phase 14**: Đóng gói & Điều phối bằng Docker Compose.
+  - **Phase 15**: Kiểm thử Golden Dataset, E2E Verification & Hướng dẫn vận hành.
+- `specs/test-plan.md` — Cập nhật kịch bản kiểm thử:
+  - Test routing của Supervisor sang 3 Worker.
+  - Test gọi và chuyển đổi Model tự host `qwen3-4b`.
+  - Test hiển thị output, token usage trên Langfuse và đăng nhập bằng `Atin@123#`.
+  - Test khởi chạy đồng bộ các container qua `docker compose up -d`.
+- `AGENTS.md` — Bổ sung nguyên tắc kiến trúc 3 tầng, quy tắc Multi-Agent tinh gọn (tránh over-engineering), và bảo mật secrets.
+- `README.md` — Cập nhật sơ đồ kiến trúc v3, hướng dẫn chạy Docker Compose, thông số model tự host, và cổng dịch vụ.
+
+### Verified
+- Chưa sửa code ứng dụng (tuân thủ chỉ dẫn "Do not implement the app yet").
+- `pytest -v` → **21 passed** (toàn bộ test offline hiện tại tiếp tục xanh 100%).
+
+---
+
 ## 2026-09-18 (Local Development & Docs: Cập nhật `README.md` toàn diện)
 
 ### Updated

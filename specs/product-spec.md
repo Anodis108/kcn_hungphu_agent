@@ -1,123 +1,88 @@
-# Product Spec
+# Product Spec (agent_stat_v3)
 
-## App Name
-agent_stat_v2 (agent_ATIN) — Trợ lý hỏi-đáp thống kê toàn bộ sự kiện VMS
+## App Goal
+Tái cấu trúc và phát triển hệ thống hỏi-đáp AI phục vụ giám sát, thống kê toàn bộ 8 loại sự kiện camera AI trên nền tảng VMS tại Khu công nghiệp Hưng Phú. Hệ thống được xây dựng tinh gọn, dễ đọc, dễ bảo trì (tham khảo phong cách `llm-engineer-demo`), chia tách độc lập giữa **Frontend (FE)** và **AI_Backend**, điều phối trọn gói bằng **Docker Compose**, **giữ nguyên kiến trúc ReAct Agent hiện tại** để dễ so sánh đối chứng hiệu năng, nâng cấp giám sát **Langfuse** (đầy đủ output và token metrics) và hỗ trợ **Model LLM tự host (Qwen3-4B)**.
 
-## Goal
-Cho người vận hành khu công nghiệp hỏi bằng tiếng Việt tự nhiên và nhận câu
-trả lời thống kê dựa trên dữ liệu camera AI thật (Postgres), không cần biết
-SQL — bao quát cả 8 loại sự kiện hiện có trên web VMS:
+Hệ thống bao quát đầy đủ 8 nhóm sự kiện camera AI:
+1. **Nhận diện khuôn mặt** (`smart_face.smf_face_events`)
+2. **Giám sát phương tiện** (`its.plate_event`)
+3. **Giám sát vùng cấm / hàng rào ảo** (`virtual_fence.zone_event`)
+4. **Phát hiện ẩu đả** (`anomaly.anomaly_event` — `FIGHT_DETECTION`)
+5. **Phát hiện đám đông** (`anomaly.anomaly_event` — `CROWD_DETECTION`)
+6. **Phát hiện leo trèo** (`anomaly.anomaly_event` — `INTRUSION_DETECTION`)
+7. **Phát hiện cháy khói** (`firesmoke.fire_smoke_event`)
+8. **Giám sát mực nước** (`anomaly.anomaly_event` — `WATER_LEVEL_DETECTION`)
 
-1. Nhận diện khuôn mặt
-2. Giám sát phương tiện (đã có ở v1)
-3. Giám sát vùng cấm / hàng rào ảo (đã có ở v1)
-4. Phát hiện ẩu đả
-5. Phát hiện đám đông
-6. Phát hiện leo trèo
-7. Phát hiện cháy khói
-8. Giám sát mực nước
-
-Nguồn dữ liệu chính xác cho từng sự kiện (bảng Postgres, cột, giả định cần
-xác nhận) nằm ở `specs/implementation-plan.md` mục Phase 2 — spec này chỉ
-nêu MỤC TIÊU sản phẩm, không lặp lại chi tiết kỹ thuật.
-
-Ngoài tính năng hỏi-đáp, bản v2 còn thêm 2 phần hạ tầng vận hành (người
-dùng cuối không thấy trực tiếp): **observability** (Langfuse tracing,
-self-host) và **Prompt Registry** (quản lý prompt như code).
-
-> Ghi chú quy trình: v1 (xe ra/vào + vùng cấm) là bản viết lại đơn giản
-> nhất của `atin/` (đã chạy được, verify với Postgres thật). v2 (spec này)
-> MỞ RỘNG phạm vi sự kiện + thêm observability/prompt registry, nhưng GIỮ
-> NGUYÊN các quyết định kiến trúc đã kiểm chứng ở v1 (1 FastAPI service,
-> function-calling cố định — không Text-to-SQL tự do, tối đa 2 LLM call/
-> câu hỏi, đọc-only DB qua role riêng, đổi LLM backend chỉ qua `.env`).
+---
 
 ## Target Users
-- Người vận hành/quản lý khu công nghiệp — không biết SQL, cần số liệu nhanh.
-- Chỉ phục vụ 1 tổ chức (organization) duy nhất trong bản MVP này.
+- **Ban Quản lý & Đội ngũ Vận hành an ninh, hạ tầng KCN Hưng Phú**: Cần tra cứu số liệu thống kê nhanh chóng bằng tiếng Việt tự nhiên, không cần viết câu lệnh SQL.
+- **Kỹ sư AI / Vận hành Hệ thống (LLMOps)**: Theo dõi trực quan vết suy luận của agent, số lượng token tiêu thụ, độ trễ và quản lý phiên bản prompt qua Langfuse.
+
+---
 
 ## Core User Flow
-1. User mở trang chat đơn giản (1 ô nhập câu hỏi + lịch sử hội thoại).
-2. User gõ câu hỏi thống kê (vd. "Hôm nay có bao nhiêu lượt xe vào?").
-3. App kiểm tra câu hỏi có hợp lệ không (không phải nội dung độc hại/lạc đề).
-4. App chọn đúng truy vấn cần dùng, lấy số liệu từ database, trả lời bằng
-   câu tiếng Việt tự nhiên kèm bảng số liệu thô.
-5. User xem câu trả lời, có thể hỏi tiếp câu khác.
+1. **Truy cập Giao diện**: Người dùng mở trình duyệt truy cập Frontend UI (phong cách Claude UI tinh tế, hiện đại).
+2. **Cấu hình Model**: Người dùng có thể kiểm tra hoặc chuyển đổi giữa OpenAI Cloud (`gpt-4o-mini`) và Model LLM tự host (`qwen3-4b`).
+3. **Đặt Câu hỏi**: Nhập câu hỏi tự nhiên bằng tiếng Việt (ví dụ: *"Hôm nay có bao nhiêu lượt xe vào?"* hoặc *"Có cảnh báo cháy hay ẩu đả nào hôm nay không?"*).
+4. **Xử lý tại AI_Backend**:
+   - Kiểm tra Guardrails đầu vào (chặn prompt injection, lọc câu hỏi ngoài phạm vi).
+   - Chạy **ReAct Agent hiện tại** (`build_react_subgraph`: `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`) để chọn tool và truy vấn số liệu thật từ Postgres (read-only role `agent_readonly`).
+   - Diễn giải kết quả qua LLM Answer node (hoặc template nhanh) kết hợp với Git-based Prompt Registry (`prompts/`).
+   - Kiểm tra Guardrails đầu ra (chống hallucination, che giấu PII).
+5. **Phản hồi Trực quan**: FE hiển thị câu trả lời rõ ràng kèm chi tiết công cụ đã thực thi (collapsible execution accordion).
+6. **Langfuse Observability**: Ghi nhận toàn bộ trace (đầy đủ `input`, `output`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `model_name`, `latency_s`).
+
+---
 
 ## Features In Scope
 
-**Agent & tool** — 1 agent duy nhất (không multi-agent), trả lời bằng
-function-calling trên bộ tool tham số hoá cố định — KHÔNG Text-to-SQL tự do
-(an toàn + chính xác hơn với model nhỏ). Tool phủ đủ 8 domain sự kiện ở
-mục Goal (2 domain đầu — phương tiện, vùng cấm — đã có ở v1; 5 domain còn
-lại là Phase 2-3-5, xem implementation-plan.md), cộng 1 tool SQL đọc-only dự
-phòng cho câu hỏi không khớp tool nào, và 1 tool liệt kê camera/khu vực
-hợp lệ (tránh agent đoán sai giá trị lọc).
+### 1. Phân Tách Độc Lập Frontend & AI_Backend
+- **Frontend (`frontend/`)**: Giao diện Claude-inspired trực quan, nhẹ, dễ chỉnh sửa; hỗ trợ cấu hình API endpoint và chuyển đổi Model Provider.
+- **AI_Backend (`backend/` / `src/`)**: FastAPI service chứa toàn bộ API Gateway, Agent ReAct, Database Tools, Guardrails và Observability.
+- **Giữ nguyên Kiến trúc Agent ReAct**: Duy trì nguyên vẹn mô hình ReAct LangGraph (`seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`) với 8 domain sự kiện VMS để bảo đảm tính tương thích và dễ so sánh đối chứng.
 
-**Guardrail** — input: chặn prompt injection/nội dung độc hại, và từ chối
-lịch sự câu hỏi ngoài phạm vi thống kê (không gọi agent). Output: đối chiếu
-số liệu trong câu trả lời với số liệu tool trả về (thuần code, không LLM),
-giới hạn độ dài, redact PII cơ bản.
+### 2. Quản Lý Điều Phối Trọn Gói (Docker Compose)
+- Tệp `docker-compose.yml` tại thư mục gốc quản lý khởi chạy đồng bộ:
+  - Service `frontend`: Web server phục vụ Claude UI.
+  - Service `ai_backend`: FastAPI server kết nối Agent, Tools và Postgres.
+  - Service `langfuse` stack: Langfuse Web, Worker, ClickHouse, Postgres nội bộ, Redis, MinIO.
 
-**Hạ tầng** — đọc-only Postgres qua role riêng (không phải user admin) trên
-mọi DB nguồn cần dùng. Đổi LLM backend (OpenAI Cloud / Ollama local) chỉ
-qua `.env`, không sửa code — vì mục tiêu cuối là chạy trên máy 4GB VRAM.
+### 3. Nâng Cấp Langfuse Observability Toàn Diện
+- **Lưu trữ Đầy đủ Output**: Bắt buộc ghi nhận trường `output` trên toàn bộ trace và child span.
+- **Token Usage & Call Metrics**: Thu thập chi tiết thông số mỗi lượt gọi LLM: `prompt_tokens`, `completion_tokens`, `total_tokens`, `model_name`, `temperature`, `latency_s`.
+- **Mật khẩu Quản trị Mặc định**: Tài khoản `admin@agent-atin.local` đăng nhập với mật khẩu: **`Atin@123#`**.
 
-**UI** — 1 trang web tĩnh đơn giản (HTML/JS thuần, không framework) làm UI
-chat.
+### 4. Hỗ Trợ Dual Model (OpenAI Cloud & Model Tự Host)
+- Chuyển đổi linh hoạt giữa:
+  - **OpenAI Cloud**: `gpt-4o-mini` (hỗ trợ quay vòng key khi gặp rate-limit).
+  - **Model tự host (Local/Self-hosted)**:
+    - Base URL: `http://192.168.1.196:18083/v1`
+    - Model: `qwen3-4b`
+    - API Key: `lgw_ef6984db8f59_zSvqDWXxYzeaU-4U0pLqS7LBiD5gvOm9wI7R-L4Lpqw`
+    - Endpoint: `http://192.168.1.196:18083/v1/chat/completions`
 
-**Golden dataset** — bộ 30 câu hỏi mẫu (`eval/datasets/agent_stat`) phủ đủ
-8 domain sự kiện, dùng làm thước đo mỗi khi sửa agent/prompt. Chi tiết
-phân bổ case theo domain: xem implementation-plan.md Phase 2.
+### 5. Git-based Prompt Registry
+- Tiếp tục duy trì quản lý prompt qua file YAML và con trỏ `production.txt` trong `prompts/`.
 
-**Observability** — Langfuse tự host trên máy này, trace mỗi lượt `/ask`
-(input/output/latency/lỗi). Mặc định TẮT (`MONITORING_ENABLED=false`) —
-không ai bắt buộc phải chạy Langfuse để dùng phần còn lại của app.
+---
 
-**Prompt Registry** — prompt sống trong file YAML riêng (`prompts/`),
-không hardcode trong code. Đổi version production = sửa 1 file, không cần
-sửa code; rollback = revert lại file đó. Git-based (không dùng dịch vụ
-hosted ngoài).
+## Features Out of Scope (Bản v3 MVP)
+- Thay đổi cấu trúc Agent sang Multi-agent swarm (giữ nguyên cấu trúc ReAct hiện tại để đối chứng).
+- Text-to-SQL tự do (duy trì function calling an toàn trên bộ tool cố định).
+- Vector DB / RAG cho dữ liệu phi cấu trúc.
+- Cảnh báo đẩy chủ động thời gian thực qua WebSocket/Telegram.
+- Kubernetes clustering hoặc hạ tầng cloud phức tạp.
 
-## Features Out of Scope (bản MVP này)
-- Multi-agent / nhiều sub-agent chuyên biệt theo phòng ban.
-- Visualization Agent (vẽ chart) — để phase sau.
-- HITL (human-in-the-loop), connection pooling đa người dùng.
-- Long-term memory, tool retrieval qua embedding, MCP server/client.
-- LLM-based injection check (chỉ dùng regex — nhanh, đủ cho MVP).
-- Authentication, phân quyền theo user/phòng ban.
-- Materialized views / mart riêng — luôn query trực tiếp bảng raw.
-- Test UI tự động (chấp nhận test tay qua trình duyệt), load test nhiều
-  người dùng đồng thời.
-- Production cloud deployment (chỉ cần chạy local + demo qua ngrok).
-- Phân tích ảnh/video bằng LLM — agent chỉ đọc số liệu đã được AI pipeline
-  khác trích xuất sẵn vào Postgres, không tự chấm điểm ảnh/video.
-- Cảnh báo real-time / push notification — agent trả lời khi được hỏi,
-  không tự động đẩy tin khi có sự kiện mới.
-- Langfuse Cloud, Prompt Registry hosted (LangSmith/PromptLayer) — chọn
-  nhánh tự-host/git-based rẻ nhất, đúng tinh thần MVP.
-- A/B testing prompt tự động trên traffic thật — Prompt Registry (chưa có
-  phase kế hoạch cụ thể, xem ghi chú cuối `implementation-plan.md`) chỉ
-  làm registry + versioning, chưa làm traffic splitting.
+---
 
 ## Acceptance Criteria
-- Chạy được local bằng 1 lệnh (`uvicorn` hoặc tương đương).
-- User thấy trạng thái rõ ràng trên UI: đang xử lý / trả lời thành công /
-  lỗi (không im lặng, không crash trắng trang).
-- Trả lời đúng, có số liệu thật, cho ít nhất 1 câu hỏi mẫu mỗi domain
-  (8 domain ở mục Goal).
-- Câu hỏi ngoài phạm vi (vd. hỏi thời tiết) → bị từ chối lịch sự, không gọi
-  tool/DB.
-- Câu hỏi chứa prompt injection rõ ràng → bị chặn, trả lỗi rõ ràng (không
-  crash).
-- Đổi `LLM_BACKEND=ollama` trong `.env` và không cần sửa code để chạy với
-  model local.
-- Có thể demo qua ngrok (expose 1 cổng duy nhất — FastAPI phục vụ cả API và
-  static UI).
-- `eval/datasets/agent_stat` có đủ 30 case phủ 8 domain, chạy được bằng
-  `eval/run.py`, in được tỷ lệ pass/fail theo slice.
-- Langfuse chạy self-host trên máy này, xem được trace của 1 lượt `/ask`
-  thật (input/output/latency, không lộ secrets). Tắt monitoring thì app
-  chạy y hệt v1, `pytest` offline không bị ảnh hưởng.
-- Đổi file production của 1 prompt (không sửa code) làm hành vi agent đổi
-  theo, revert lại file thì hành vi quay về như cũ.
+1. **Khởi chạy 1 lệnh**: `docker compose up -d` khởi động đồng bộ và thành công cả 3 cụm: Frontend, AI_Backend, và Langfuse.
+2. **Giao diện Claude-inspired**: UI thẩm mỹ cao, hiển thị lịch sử chat, có accordion xem chi tiết công cụ thực thi, cho phép chuyển đổi model.
+3. **Phân tách Rõ ràng**: Cấu trúc thư mục `frontend/` và `backend/` tách bạch, có thể chạy và kiểm thử độc lập.
+4. **Giữ nguyên Kiến trúc Agent ReAct**: Graph ReAct hiện tại hoạt động ổn định, trả lời chính xác số liệu cho cả 8 domain sự kiện VMS.
+5. **Langfuse Observability Đầy đủ**:
+   - Đăng nhập được vào Langfuse UI (`http://localhost:3000`) với email `admin@agent-atin.local` và mật khẩu `Atin@123#`.
+   - Mọi lượt gọi `/api/chat` (hoặc `/ask`) đều tạo trace có đầy đủ `output` và token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`).
+6. **Hoạt động với Model Tự Host**: Agent phản hồi chính xác khi cấu hình sử dụng model tự host `qwen3-4b` tại `http://192.168.1.196:18083/v1`.
+7. **Đạt chuẩn Kiểm thử**: Đạt 100% pass trên bộ 24 unit tests offline và 30 câu hỏi mẫu golden dataset (`eval/run.py`).

@@ -1,95 +1,166 @@
-"""Guardrail — input (injection/toxic chặn cứng, phạm vi câu hỏi trả lời
-lịch sự) + output (đối chiếu số liệu, redact PII, giới hạn độ dài). Toàn bộ
-bằng regex/code, KHÔNG dùng LLM (giữ đúng ngân sách "tối đa 2 lời gọi
-LLM/câu hỏi" của MVP — xem specs/product-spec.md).
+"""Guardrail — input (chặn injection/toxic, lọc câu hỏi ngoài phạm vi)
++ output (đối chiếu số liệu chống hallucination, redact PII, giới hạn độ dài).
 
-Tham khảo `llm-engineer-demo/app/guardrails/injection.py` + `pii.py` (pattern
-gốc) và `atin/app/guardrails/checks.py` + `atin/app/supervisor_agent/
-guardrails.py` (đã kiểm chứng, gộp lại thành 1 file phẳng ở đây — cấu trúc
-`src/` của project này không tách package `guardrails/` riêng).
-
-CHƯA ghép vào pipeline (`src/main.py`)/`src/agent/graph.py` — đó là item kế
-tiếp trong Phase 5 ("Ghép luồng: guardrail_input → agent → guardrail_output").
+Toàn bộ logic guardrail sử dụng Regex và code thuần, KHÔNG gọi LLM
+để tối ưu hóa tốc độ xử lý (< 1ms) và tiết kiệm chi phí.
 """
 
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from src.config import settings
 
 _INJECTION_PATTERNS = [
-    re.compile(r"ignore (all |previous |above )?instructions", re.IGNORECASE),
-    re.compile(r"disregard (all |previous |above )?(instructions|rules)", re.IGNORECASE),
-    re.compile(r"bỏ qua (mọi |các )?(hướng dẫn|chỉ dẫn|quy tắc)", re.IGNORECASE),
-    re.compile(r"reveal (your |the )?system prompt", re.IGNORECASE),
-    re.compile(r"tiết lộ.*system prompt", re.IGNORECASE),
-    re.compile(r"you are now", re.IGNORECASE),
-    re.compile(r"act as (if you|a) ", re.IGNORECASE),
+    re.compile(r"ignore (?:all |previous |above |prior )*(?:instructions|prompts|rules)", re.IGNORECASE),
+    re.compile(r"disregard (?:all |previous |above |prior )*(?:instructions|rules|prompts)", re.IGNORECASE),
+    re.compile(r"bỏ qua (?:mọi |tất cả |các )*(?:hướng dẫn|chỉ dẫn|quy tắc|chỉ thị)", re.IGNORECASE),
+    re.compile(r"quên (?:hết |mọi |tất cả |các )*(?:hướng dẫn|chỉ dẫn|quy tắc|lệnh trước)", re.IGNORECASE),
+    re.compile(r"(?:reveal|dump|show|print|leak|get|output|display).*(?:system |developer )?(?:prompt|instructions|rules)", re.IGNORECASE),
+    re.compile(r"(?:tiết lộ|in ra|hiển thị|cho xem|xem|xuất).*(?:system prompt|prompt hệ thống|chỉ dẫn hệ thống|hướng dẫn ban đầu)", re.IGNORECASE),
+    re.compile(r"you are now (?:a|an|in) ", re.IGNORECASE),
+    re.compile(r"act as (?:if you|a|an) ", re.IGNORECASE),
+    re.compile(r"đóng vai (?:là|như|một) ", re.IGNORECASE),
+    re.compile(r"(?:từ giờ|bây giờ) bạn là ", re.IGNORECASE),
+    re.compile(r"\b(?:jailbreak|dan mode|developer mode enabled)\b", re.IGNORECASE),
+    re.compile(r"bypass (?:all |safety |guardrail|security )*(?:filters|rules|checks)", re.IGNORECASE),
 ]
 
-_TOXIC_WORDS = frozenset({"đụ", "địt", "đéo", "fuck", "shit", "cút", "óc chó"})
+_TOXIC_WORDS = frozenset({"đụ", "địt", "đéo", "fuck", "shit", "cút", "óc chó", "dm", "dcm", "vcl"})
 
-_PHONE = re.compile(r"\b0\d{9,10}\b")
-_EMAIL = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
+_PHONE = re.compile(r"(?:\+84|84|0)(?:3|5|7|8|9)\d{8}\b|\b0\d{9,10}\b")
+_EMAIL = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+_ID_CARD = re.compile(r"\b(?:CCCD|CMND|ID|Số định danh)[:\s]*(\d{9}|\d{12})\b", re.IGNORECASE)
 
-# Từ khoá nhận diện câu hỏi trong phạm vi thống kê xe ra/vào + xâm nhập khu
-# vực (xem specs/product-spec.md mục "Core User Flow"/"Features In Scope").
+# Từ khoá nhận diện phạm vi nghiệp vụ VMS KCN Hưng Phú (8 domain sự kiện)
 STAT_KEYWORDS = frozenset(
     {
-        "khu vực",
-        "ra vào",
-        "ra/vào",
-        "lượt vào",
-        "lượt ra",
-        "thống kê",
-        "báo cáo",
-        "bao nhiêu người",
-        "bao nhiêu xe",
-        "bao nhiêu lượt",
-        "số lượt",
-        "cổng",
-        "nhân viên",
-        "khu a",
-        "khu b",
+        # Giao thông & Phương tiện (Traffic / Plate)
+        "xe",
         "xe máy",
+        "xe may",
         "ô tô",
+        "o to",
         "oto",
         "xe tải",
+        "xe tai",
+        "xe bus",
+        "xe buýt",
+        "xe buyt",
         "biển số",
         "bien so",
         "hãng xe",
+        "hang xe",
+        "lưu lượng",
+        "luu luong",
+        "lượt xe",
+        "luot xe",
+        "phương tiện",
+        "phuong tien",
+        "truy vết",
+        "truy vet",
+        "tìm xe",
+        "tim xe",
+        "vết xe",
+        # Khuôn mặt & Con người (Smart Face)
+        "khuôn mặt",
+        "khuon mat",
+        "nhận diện",
+        "nhan dien",
+        "gương mặt",
+        "guong mat",
+        "khách",
+        "khach",
+        "vip",
+        "nhân viên",
+        "nhan vien",
+        "người lạ",
+        "nguoi la",
+        # Xâm nhập & Hàng rào ảo (Virtual Fence / Intrusion)
         "xâm nhập",
         "xam nhap",
         "hàng rào",
-        "camera",
-        "truy vết",
-        "truy vet",
-        "khung giờ",
-        "khung gio",
-        # 5 domain sự kiện VMS mới (Phase 2+) — từ khoá nhận diện phạm vi
-        # cho in_scope(); tool/DB tương ứng đã có ở Phase 3/5.
-        "khuôn mặt",
-        "khuon mat",
-        "ẩu đả",
-        "au da",
-        "đám đông",
-        "dam dong",
+        "hang rao",
+        "hàng rào ảo",
+        "hang rao ao",
+        "vượt rào",
+        "vuot rao",
+        "khu vực cấm",
+        "khu vuc cam",
         "leo trèo",
         "leo treo",
+        "hành lang",
+        "hanh lang",
+        # Cháy khói (Fire & Smoke)
         "cháy",
         "chay",
         "khói",
         "khoi",
+        "hỏa hoạn",
+        "hoa hoan",
+        "báo cháy",
+        "bao chay",
+        "đám cháy",
+        "dam chay",
+        # Sự cố bất thường (Anomaly: Đám đông, ẩu đả, mực nước)
+        "ẩu đả",
+        "au da",
+        "đánh nhau",
+        "danh nhau",
+        "đám đông",
+        "dam dong",
+        "tụ tập",
+        "tu tap",
         "mực nước",
         "muc nuoc",
+        "ngập",
+        "ngap",
+        "ngập úng",
+        "ngap ung",
+        "nước dâng",
+        "nuoc dang",
+        "bất thường",
+        "bat thuong",
+        "sự cố",
+        "su co",
+        # Thống kê chung & Địa điểm VMS
+        "khu vực",
+        "khu vuc",
+        "ra vào",
+        "ra/vào",
+        "ra vao",
+        "lượt vào",
+        "luot vao",
+        "lượt ra",
+        "luot ra",
+        "thống kê",
+        "thong ke",
+        "báo cáo",
+        "bao cao",
+        "bao nhiêu người",
+        "bao nhiêu xe",
+        "bao nhiêu lượt",
+        "số lượt",
+        "so luot",
+        "cổng",
+        "cong",
+        "camera",
+        "cam",
+        "khung giờ",
+        "khung gio",
+        "kcn",
+        "hưng phú",
+        "hung phu",
+        "khu a",
+        "khu b",
+        "khu c",
     }
 )
 
 OUT_OF_SCOPE_REPLY = (
-    "Xin lỗi, tôi chỉ hỗ trợ thống kê lượt ra/vào khu vực từ dữ liệu hiện có — "
-    "câu hỏi này nằm ngoài phạm vi đó. Hãy hỏi ví dụ: "
-    '"Hôm nay có bao nhiêu lượt xe vào?".'
+    "Xin lỗi, câu hỏi này ngoài phạm vi hỗ trợ. Tôi chỉ hỗ trợ thống kê dữ liệu giám sát VMS KCN Hưng Phú (xe ra/vào, khuôn mặt, xâm nhập hàng rào, cháy khói, đám đông, ẩu đả, mực nước). "
+    'Hãy hỏi ví dụ: "Hôm nay có bao nhiêu lượt xe vào khu vực Cổng 1?".'
 )
 
 _FALLBACK = "Xin lỗi, tôi chưa đủ dữ liệu đáng tin để trả lời. Hãy hỏi lại rõ hơn."
@@ -97,10 +168,9 @@ _DISCLAIMER = " (Lưu ý: số liệu chưa xác minh được với dữ liệu
 
 
 class GuardrailViolation(Exception):
-    """Injection/nội dung độc hại — nguy hại thật, chặn cứng (raise, không
-    gọi agent/DB). Câu hỏi ngoài phạm vi KHÔNG raise lỗi này — xem in_scope()."""
+    """Injection/nội dung độc hại — chặn cứng (raise HTTP 400)."""
 
-    def __init__(self, reason: str, details: dict | None = None):
+    def __init__(self, reason: str, details: dict[str, Any] | None = None):
         self.reason = reason
         self.details = details or {}
         super().__init__(reason)
@@ -125,8 +195,12 @@ def detect_toxicity(text: str) -> bool:
 
 
 def redact_pii(text: str) -> str:
-    text = _PHONE.sub("[SĐT ẩn]", text or "")
+    """Che giấu thông tin cá nhân nhạy cảm (SĐT, Email, CCCD/CMND)."""
+    if not text:
+        return ""
+    text = _PHONE.sub("[SĐT ẩn]", text)
     text = _EMAIL.sub("[email ẩn]", text)
+    text = _ID_CARD.sub(lambda m: m.group(0).replace(m.group(1), "[CCCD ẩn]"), text)
     return text
 
 
@@ -136,8 +210,7 @@ def in_scope(question: str) -> bool:
 
 
 def check_input(text: str) -> None:
-    """Raise GuardrailViolation nếu injection/toxic (nguy hại thật). Không
-    chặn PII ở đây — caller tự redact bằng redact_pii()."""
+    """Raise GuardrailViolation nếu injection hoặc toxic."""
     if detect_prompt_injection(text):
         raise GuardrailViolation("prompt_injection_detected", {"pattern_match": True})
     if detect_toxicity(text):
@@ -145,9 +218,9 @@ def check_input(text: str) -> None:
 
 
 def check_output(answer: str, evidence: list[str]) -> OutputCheckResult:
-    """Không raise — trả kết quả để caller quyết định giữ answer, thêm
-    disclaimer, hay fallback. `evidence`: các đoạn text chứa số liệu thật đã
-    lấy được (câu hỏi + dữ liệu tool) để đối chiếu số trong answer."""
+    """Đối chiếu số liệu thật từ evidence để chống hallucination,
+    che giấu PII và giới hạn độ dài câu trả lời.
+    """
     issues: list[str] = []
     text = answer or ""
 
@@ -156,16 +229,17 @@ def check_output(answer: str, evidence: list[str]) -> OutputCheckResult:
     if detect_toxicity(text):
         issues.append("toxic_output")
 
-    # LLM hay tự format số có dấu . phân cách hàng nghìn kiểu VN (vd. "9.418"),
-    # trong khi evidence (dữ liệu tool thô) không có dấu phân cách — chuẩn hoá
-    # cả 2 phía (bỏ dấu . giữa các chữ số) trước khi so khớp, tránh false
-    # positive gắn oan disclaimer cho số liệu ĐÚNG chỉ khác cách trình bày.
-    context_text = re.sub(r"(?<=\d)\.(?=\d{3}\b)", "", " ".join(evidence))
-    numbers = re.findall(r"\b\d+\b", re.sub(r"(?<=\d)\.(?=\d{3}\b)", "", text))
-    unverified = [n for n in numbers if n not in context_text]
-
     if "answer_too_short" in issues or "toxic_output" in issues:
         return OutputCheckResult(valid=False, issues=issues, answer=_FALLBACK)
+
+    # Chuẩn hoá dấu phân cách hàng nghìn (chấm/phẩy giữa các chữ số) để so khớp số liệu
+    context_text = " ".join(str(e) for e in evidence if e)
+    normalized_context = re.sub(r"(?<=\d)[.,](?=\d{3}\b)", "", context_text)
+    normalized_answer = re.sub(r"(?<=\d)[.,](?=\d{3}\b)", "", text)
+
+    # Trích xuất toàn bộ số từ câu trả lời
+    numbers = re.findall(r"\b\d+\b", normalized_answer)
+    unverified = [n for n in numbers if n not in normalized_context]
 
     if unverified:
         issues.append("unverified_numbers")
@@ -181,4 +255,4 @@ def check_output(answer: str, evidence: list[str]) -> OutputCheckResult:
         issues.append("answer_too_long")
         text = text[:max_len].rstrip() + "…"
 
-    return OutputCheckResult(valid=not issues, issues=issues, answer=text)
+    return OutputCheckResult(valid=len(issues) == 0, issues=issues, answer=text)

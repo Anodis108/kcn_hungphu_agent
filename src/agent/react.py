@@ -15,8 +15,9 @@ from functools import partial
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
+from src.config import settings
 from src.llm import invoke_with_tools, use_offline_tools
-from src.monitoring.tracing import trace_step
+from src.monitoring.tracing import extract_token_usage, trace_step
 
 
 def fresh_user(text: str) -> dict:
@@ -78,7 +79,18 @@ def agent_node(state: dict, *, tools: list, system_prompt, offline_call) -> dict
         except Exception as exc:
             t["output"] = {"error": str(exc)}
             return {"messages": [AIMessage(content=f"Lỗi LLM: {exc}. Thử lại hoặc hỏi lại câu khác.")]}
-        t["output"] = {"tool_calls": _tool_call_summary(getattr(response, "tool_calls", None) or [])}
+
+        usage = extract_token_usage(response)
+        model_name = getattr(response, "response_metadata", {}).get("model_name") or (
+            settings.model_name if settings.llm_backend == "self_hosted" else settings.llm_model
+        )
+        t["usage"] = usage
+        t["model_name"] = model_name
+        t["temperature"] = settings.llm_temperature
+        t["output"] = {
+            "tool_calls": _tool_call_summary(getattr(response, "tool_calls", None) or []),
+            "tokens": usage,
+        }
         return {"messages": [response]}
 
 

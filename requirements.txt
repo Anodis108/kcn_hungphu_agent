@@ -5,9 +5,8 @@ pydantic-settings
 langgraph
 langchain-core
 langchain-openai
-openai==2.45.0  # ghim: bản mới hơn kéo theo httpx2 lỗi (Decompressor.decompress
-                # thiếu output_buffer_limit) khi decode response nén — xem
-                # specs/change-log.md 2026-09-18
+openai==2.45.0  # ghim: bản mới hơn kéo theo httpx2 lỗi (Decompressor.decompress thiếu output_buffer_limit)
 psycopg2-binary
+pyyaml
 langfuse
 pytest
