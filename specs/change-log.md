@@ -1,3 +1,116 @@
+## 2026-09-18 (Local Development & Docs: Cập nhật `README.md` toàn diện)
+
+### Updated
+- `README.md` — Cập nhật tài liệu hướng dẫn chạy local theo chuẩn Spec Driven Development:
+  - Bổ sung danh sách đầy đủ các tính năng agent phục vụ (`Features Can Serve`: 8 domain VMS + Guardrails + Prompt Registry + Langfuse Observability).
+  - Cập nhật mục Prerequisites (Python 3.11+, 5 DBs Postgres, OpenAI / Ollama, Docker optional).
+  - Cài đặt & cài đặt biến môi trường (`Install Commands`, `Environment Variables` kèm SQL script thiết lập `agent_readonly` role).
+  - Giải thích kiến trúc 1 FastAPI Service duy nhất phục vụ cả Backend API lẫn Frontend UI (`static/index.html`), giải thích lý do không có lệnh chạy frontend/backend tách rời.
+  - Cung cấp lệnh chạy `uvicorn src.main:app --reload --port 8000` & danh sách địa chỉ địa phương (`Local URLs`: UI Chat `/`, Ask API `/ask`, Health `/health`, Swagger `/docs`, Langfuse `:3000`).
+  - Thêm hướng dẫn quản lý & đổi version Prompt qua `PromptRegistry` không cần sửa code.
+  - Thêm bảng Troubleshooting Notes 7 lỗi thường gặp & cách xử lý.
+
+### Verified
+- `pytest -v` → **21 passed** (không ảnh hưởng tới logic ứng dụng).
+- Kiểm tra render markdown & file links hoạt động chính xác.
+
+---
+
+## 2026-09-18 (Phase 9, item 3: Test offline Prompt Registry & E2E Alias Switch)
+
+### Added
+- `prompts/agent_system/v2.yaml` & `prompts/answer/v2.yaml` — prompt mẫu version 2 có nhãn `[v2]` phục vụ test đổi versionAlias `production.txt`.
+- `tests/test_prompt_registry.py::test_prompt_registry_switch_production_alias_and_rollback` — unit test chuyển `production.txt` từ `"1"` sang `"2"` (mà KHÔNG sửa code Python nào) và verify `_system_prompt()` tự động chuyển sang v2, sau đó revert `production.txt` về `"1"` (rollback) và verify `_system_prompt()` quay về v1.
+
+### Verified
+- `pytest -v` → **21 passed** (toàn bộ suite test 100% xanh).
+- Thử nghiệm đổi `production.txt` và rollback đều hoạt động 100% đúng kỳ vọng.
+
+## 2026-09-18 (Review Phase 9 item 3 vs product-spec.md/test-plan.md)
+
+Review lại đúng feature vừa làm (Test offline Prompt Registry & E2E Alias Switch) đối chiếu `specs/product-spec.md` và `specs/test-plan.md`.
+
+### Pass
+- `product-spec.md`: Toàn bộ mục Prompt Registry và Acceptance Criteria "Đổi file production của 1 prompt (không sửa code) làm hành vi agent đổi theo, revert lại file thì hành vi quay về như cũ" — ĐẠT 100%.
+- `test-plan.md`: Đạt đủ 5/5 test case trong mục Test Prompt Registry.
+- Toàn bộ 9 Phase trong `specs/implementation-plan.md` nay đã hoàn thành 100% (0 mục `[ ]` còn lại).
+
+### Fail
+- Không có lỗi.
+
+### Missing
+- Không có. Toàn bộ kế hoạch sản phẩm v2 (8 domain sự kiện + Langfuse Observability + Prompt Registry) đã hoàn tất 100%.
+
+---
+
+## 2026-09-18 (Phase 9, item 2: Tích hợp `PromptRegistry` vào `graph.py` & `answer.py`)
+
+### Changed
+- `src/agent/graph.py` — thay thế chuỗi template `_SYSTEM_TEMPLATE` hardcode bằng lời gọi `registry().render("agent_system", version="production", now=now)`. Hàm `_system_prompt()` tiếp tục là callable được đánh giá động theo thời gian UTC mỗi khi agent khởi chạy.
+- `src/agent/answer.py` — thay thế hằng số `_SYSTEM` hardcode bằng hàm `_get_system_prompt()` gọi `registry().render("agent_answer", version="production")`.
+- `tests/test_prompt_registry.py` — bổ sung 2 test integration: `test_agent_graph_system_prompt_integration` và `test_agent_answer_system_prompt_integration`.
+
+### Verified
+- `pytest -v` → **20 passed** (bao gồm 18 test cũ + 2 test integration mới).
+- Không làm thay đổi bất kỳ hành vi/kết quả nào của Agent hay API `/ask`.
+
+## 2026-09-18 (Review Phase 9 item 2 vs product-spec.md/test-plan.md)
+
+Review lại đúng feature vừa làm (tích hợp `PromptRegistry` vào `graph.py` & `answer.py`) đối chiếu `specs/product-spec.md` và `specs/test-plan.md`.
+
+### Pass
+- `product-spec.md`: Prompt Registry tích hợp thành công vào code service; đổi version trong `production.txt` tự động áp dụng cho agent mà không cần sửa code.
+- `test-plan.md` Test Prompt Registry #1 & #5: 20/20 test `pytest` passed, agent vẫn chạy offline không crash.
+- Giữ nguyên toàn bộ logic ReAct, guardrail, fallback, và formatting.
+
+### Fail
+- Không có lỗi phát hiện được.
+
+### Missing (thuộc item tiếp theo của Phase 9)
+- Item 9.3: Test e2e verify đổi file `production.txt` và rollback qua revert commit.
+
+---
+
+## 2026-09-18 (Phase 9, item 1: `src/prompts/registry.py` & cấu trúc thư mục `prompts/`)
+
+### Added
+- Thư mục `prompts/` với 2 prompt mẫu đầu tiên:
+  - `prompts/agent_system/v1.yaml` + `production.txt` (chứa `"1"`): System prompt chính cho agent ReAct.
+  - `prompts/agent_answer/v1.yaml` + `production.txt` (chứa `"1"`): System prompt cho LLM diễn giải số liệu trong `answer.py`.
+- `src/prompts/registry.py` & `src/prompts/__init__.py` — class `PromptRegistry`:
+  - `get(name, version="production")`: Đọc YAML prompt theo số version hoặc qua alias `production.txt`.
+  - `render(name, version="production", **kwargs)`: Substitute biến vào template prompt, tự động kiểm tra biến bắt buộc bằng `string.Formatter().parse()` và raise `ValueError("Thiếu biến khi render prompt: [...]")` nếu thiếu biến.
+  - `registry()`: Singleton helper có `@lru_cache`.
+- `tests/test_prompt_registry.py` — 5 unit test offline:
+  1. `test_prompt_registry_get_by_version`: đọc đúng v1.yaml.
+  2. `test_prompt_registry_get_production`: giải mã alias `production.txt` ra version 1.
+  3. `test_prompt_registry_render_success`: substitute biến `{now}` thành công.
+  4. `test_prompt_registry_render_missing_variable_raises_value_error`: raise `ValueError` kèm tên biến thiếu khi quên truyền parameter.
+  5. `test_prompt_registry_non_existent_prompt_raises_file_not_found`: raise `FileNotFoundError` khi prompt không tồn tại.
+
+### Verified
+- `pytest -v` → **17 passed** (bao gồm 12 test cũ + 5 test mới trong `test_prompt_registry.py`).
+- Không thêm dependency mới ngoài PyYAML (đã có sẵn).
+
+## 2026-09-18 (Review Phase 9 item 1 vs product-spec.md/test-plan.md)
+
+Review lại đúng feature vừa làm (`PromptRegistry` core module + `prompts/` directory) đối chiếu `specs/product-spec.md` và `specs/test-plan.md`.
+
+### Pass
+- `product-spec.md`: Prompt Registry — prompt sống trong file YAML riêng (`prompts/`), không hardcode trong code. Đổi version production = sửa file `production.txt`, rollback = revert commit.
+- `test-plan.md` Test Prompt Registry #1: `PromptRegistry.get("agent_system", 1)` trả đúng nội dung `prompts/agent_system/v1.yaml`.
+- `test-plan.md` Test Prompt Registry #2: `PromptRegistry.render(...)` raise `ValueError("Thiếu biến khi render prompt: [...]")` khi thiếu biến bắt buộc (`{now}`).
+- `test-plan.md` Test Prompt Registry #5: `pytest` offline chạy sạch 17/17 test.
+
+### Fail
+- Không có lỗi phát hiện được.
+
+### Missing (thuộc item tiếp theo của Phase 9 — chưa tới lượt)
+- Item 9.2: Tích hợp `PromptRegistry` vào `src/agent/graph.py` và `src/agent/answer.py` thay thế chuỗi hardcode.
+- Item 9.3: Test e2e đổi `production.txt` làm thay đổi hành vi agent mà không cần sửa code.
+
+---
+
 ## 2026-09-18 (Phase 6, item: Test thật domain mới qua LLM thật)
 
 Tiếp tục làm việc trên repo — ghi nhận: giữa lượt trước và lượt này, Phase

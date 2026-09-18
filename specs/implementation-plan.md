@@ -288,12 +288,15 @@ gắn tracing (Phase 4) vào đúng chỗ.
 
 ---
 
-## Ghi chú — phạm vi không có trong 8 phase này
+## Phase 9: Prompt Registry
 
-**Prompt Registry** (quản lý prompt như code, versioning/rollback qua
-file — vẫn đang ở `specs/product-spec.md` mục "Features In Scope") KHÔNG
-có phase riêng trong bản rewrite 8-phase này, vì yêu cầu rewrite lần này
-chỉ liệt kê đúng 8 phase ở trên và không nhắc Prompt Registry. Cần xác
-nhận với user: giữ lại như 1 phase riêng (Phase 9) hay bỏ khỏi kế hoạch
-hiện tại — tránh để `product-spec.md` hứa 1 tính năng mà
-`implementation-plan.md` không lên lịch.
+- [x] `src/prompts/registry.py` & cấu trúc thư mục `prompts/` — xây dựng class `PromptRegistry` đọc prompt từ file YAML trong `prompts/`, quản lý version & alias `production.txt`, render template với validation biến bắt buộc (raise lỗi rõ ràng `ValueError` khi thiếu biến). (Xem `specs/change-log.md` 2026-09-18.)
+- [x] Tích hợp `PromptRegistry` vào `src/agent/graph.py` (system prompt) & `src/agent/answer.py` (answer prompt) — thay thế prompt hardcode, giữ nguyên behavior của agent. (Xem `specs/change-log.md` 2026-09-18.)
+- [x] Test offline (`tests/test_prompt_registry.py`) — verify `get()`, `render()`, validation biến, đổi `production.txt` trỏ version mới không sửa code, và rollback = revert commit. (Xem `specs/change-log.md` 2026-09-18.)
+
+---
+
+## Ghi chú
+
+Prompt Registry đã được chính thức bổ sung thành Phase 9 vào kế hoạch này để hoàn thành 100% các tính năng trong `specs/product-spec.md` và các bài test trong `specs/test-plan.md`.
+

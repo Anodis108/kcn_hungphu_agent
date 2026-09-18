@@ -29,6 +29,8 @@ from src.agent.react import all_tool_json, build_react_subgraph, fresh_user, par
 from src.agent.tools import TOOLS, QueryResult
 from src.monitoring.tracing import trace_step
 
+from src.prompts import registry
+
 __all__ = ["run_agent"]
 
 
@@ -58,25 +60,12 @@ _TOOL_NAMES = {t.name for t in TOOLS}
 # liệu huấn luyện, ra ngoài khoảng dữ liệu thật -> luôn 0 dòng cho câu hỏi
 # "hôm nay"). system_prompt PHẢI là callable (đánh giá lại mỗi lượt gọi),
 # không phải string cố định build 1 lần lúc compile graph.
-_SYSTEM_TEMPLATE = """Bạn là trợ lý thống kê xe ra/vào và xâm nhập khu vực —
-trả lời bằng cách CHỌN đúng tool có sẵn và điền tham số, KHÔNG tự viết SQL
-trừ khi dùng run_sql_readonly.
-
-Thời điểm hiện tại (giờ UTC, dùng để tính "hôm nay"/"hôm qua"/khung giờ): {now}
-
-Quy tắc:
-- Không chắc giá trị khu vực/camera → gọi list_khu_vuc trước.
-- Luôn tính date_from/date_to dựa trên thời điểm hiện tại ở trên — KHÔNG tự
-  đoán năm/tháng khác.
-- Ưu tiên count_vehicle_flow (xe ra/vào, phân loại xe, hãng xe qua group_by),
-  trace_plate (truy vết biển số), zone_intrusion_by_hour (xâm nhập khu vực).
-- Chỉ dùng run_sql_readonly khi không tool nào khớp câu hỏi.
-- Có kết quả rồi thì dừng, không lặp lại tool đã đủ dữ liệu."""
+# System prompt template được quản lý động qua PromptRegistry (prompts/agent_system).
 
 
 def _system_prompt() -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    return _SYSTEM_TEMPLATE.format(now=now)
+    return registry().render("agent_system", version="production", now=now)
 
 
 def _seed(state: AgentState) -> dict:

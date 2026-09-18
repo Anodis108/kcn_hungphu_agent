@@ -12,19 +12,12 @@ template — không gọi LLM khi không cần.
 from __future__ import annotations
 
 from src.config import settings
+from src.prompts import registry
 
-_SYSTEM = """Bạn viết câu trả lời tiếng Việt ngắn gọn cho câu hỏi thống kê, CHỈ
-dựa vào số liệu được cung cấp trong phần "Dữ liệu". Không suy diễn, không thêm
-số liệu ngoài dữ liệu đã cho. Nếu dữ liệu rỗng, nói rõ không có dữ liệu khớp.
-Nếu câu hỏi nhắc tới số chỗ ngồi (5/7/9/16/29/40 chỗ) nhưng dữ liệu không có
-cột phân loại đó, PHẢI nói rõ dữ liệu không phân loại theo số chỗ ngồi.
 
-QUAN TRỌNG: dữ liệu trong phần "Dữ liệu" ĐÃ được lọc đúng theo điều kiện của
-câu hỏi (vd. đúng biển số, đúng khoảng thời gian) trước khi đưa cho bạn — các
-cột không lặp lại điều kiện lọc đã biết (vd. hỏi theo 1 biển số cụ thể thì
-dữ liệu trả về sẽ KHÔNG có cột biển số, vì mọi dòng đều CÙNG biển số đó rồi).
-Nếu dữ liệu có ít nhất 1 dòng, nghĩa là CÓ khớp — không được kết luận "không
-có dữ liệu khớp" chỉ vì không thấy giá trị điều kiện lọc lặp lại trong cột."""
+def _get_system_prompt() -> str:
+    return registry().render("agent_answer", version="production")
+
 
 # DB chỉ có vehicle_type ∈ {BUS, CAR, MOTORCYCLE, TRUCK} — KHÔNG phân loại ô
 # tô theo số chỗ ngồi (5/7/9/16/29/40 chỗ), xem src/db/queries.py::
@@ -74,7 +67,7 @@ def build_answer(question: str, queries: list, template_answer: str) -> str:
 
     user_prompt = f"Câu hỏi: {question}\n\nDữ liệu:\n" + "\n\n".join(data_blocks)
     try:
-        text = invoke_text(_SYSTEM, user_prompt).strip()
+        text = invoke_text(_get_system_prompt(), user_prompt).strip()
         answer = text or template_answer
     except Exception:
         answer = template_answer

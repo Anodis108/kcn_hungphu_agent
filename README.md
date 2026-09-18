@@ -1,250 +1,215 @@
-# agent_ATIN
+# agent_ATIN (kcn_hungphu_agent)
 
-Chatbot thống kê sự kiện VMS (phương tiện, vùng cấm, khuôn mặt, ẩu đả, đám
-đông, leo trèo, cháy khói, mực nước) — dùng **spec-driven development**.
-Toàn bộ 8 phase trong `specs/implementation-plan.md` đã hoàn thành (xem
-`specs/change-log.md` để biết chi tiết từng bước). Xem:
+Trợ lý AI hỏi-đáp thống kê toàn bộ sự kiện VMS (phương tiện, vùng cấm, khuôn mặt, ẩu đả, đám đông, leo trèo, cháy khói, giám sát mực nước) dựa trên **spec-driven development**.
 
-- [`specs/product-spec.md`](specs/product-spec.md) — mục tiêu, phạm vi, acceptance criteria
-- [`specs/implementation-plan.md`](specs/implementation-plan.md) — checklist từng phase
-- [`specs/test-plan.md`](specs/test-plan.md) — cách test
-- [`specs/change-log.md`](specs/change-log.md) — lịch sử thay đổi
-- [`AGENTS.md`](AGENTS.md) — quy tắc cho coding agent khi triển khai
-- [`agent-canvas.md`](agent-canvas.md) — tổng hợp & phân tích Agent Canvas (harness VMS, model deploy, bên thứ 3)
+Toàn bộ **9 phase** trong [`specs/implementation-plan.md`](specs/implementation-plan.md) nay đã hoàn thành 100% (bao gồm 8 domain sự kiện VMS, Langfuse Observability self-host và Git-based Prompt Registry).
 
-> **Còn treo (chưa có phase kế hoạch):** Prompt Registry — xem mục "Ghi
-> chú" cuối [`specs/implementation-plan.md`](specs/implementation-plan.md).
+Tham khảo tài liệu dự án:
+- [`specs/product-spec.md`](specs/product-spec.md) — mục tiêu, đối tượng sử dụng, tính năng in/out scope & acceptance criteria
+- [`specs/implementation-plan.md`](specs/implementation-plan.md) — kế hoạch 9 phase với đầy đủ checklist items
+- [`specs/test-plan.md`](specs/test-plan.md) — kịch bản kiểm thử offline, kiểm thử thật & prompt registry
+- [`specs/change-log.md`](specs/change-log.md) — nhật ký chi tiết tất cả các đợt phát triển & review
+- [`AGENTS.md`](AGENTS.md) — quy tắc phát triển cho coding agent
 
-## Tính năng agent phục vụ được
+---
 
-Hỏi bằng tiếng Việt tự nhiên qua UI chat hoặc API, agent trả lời thống kê
-dựa trên dữ liệu Postgres thật cho **8 domain sự kiện**:
+## Tính năng Phục vụ (Features Can Serve)
 
-| Domain | Ví dụ câu hỏi |
-|---|---|
-| Phương tiện (PLATE) | "Hôm nay có bao nhiêu lượt xe vào?", truy vết biển số, thống kê theo hãng xe |
-| Vùng cấm / hàng rào ảo (ZONE) | "Khung giờ nào xâm nhập khu vực nhiều nhất hôm nay?" |
-| Nhận diện khuôn mặt (FACE) | "Hôm nay có bao nhiêu lượt nhận diện khuôn mặt?" |
-| Ẩu đả (FIGHT) | "Hôm nay có vụ ẩu đả nào không?" |
-| Đám đông (CROWD) | "Hôm nay có cảnh báo đám đông không?" |
-| Leo trèo (INTRUSION) | "Hôm nay có phát hiện leo trèo không?" |
-| Cháy khói (FIRE) | "Hôm nay có cảnh báo cháy hoặc khói không?" |
-| Mực nước (WATER_LEVEL) | "Mực nước hôm nay có vượt ngưỡng cảnh báo không?" |
+Agent cho phép người vận hành hỏi-đáp bằng tiếng Việt tự nhiên qua giao diện Web UI hoặc API RESTful, tự động chọn đúng tool truy vấn dữ liệu Postgres thật và trả lời ngắn gọn:
 
-Ngoài ra: guardrail chặn prompt injection/câu hỏi ngoài phạm vi (xem mục
-"Kiến trúc"), và quan sát nội bộ (không phải tính năng người dùng cuối)
-qua Langfuse tự host — xem mục "Chạy Langfuse (tuỳ chọn)".
+### 1. Phủ 8 Domain Sự kiện VMS
+| Domain sự kiện | Bảng dữ liệu | Ví dụ câu hỏi |
+|---|---|---|
+| **Giám sát phương tiện** (`PLATE`) | `its.plate_event` | "Hôm nay có bao nhiêu lượt xe vào?", "Thống kê xe theo hãng", truy vết biển số XXXX |
+| **Giám sát vùng cấm** (`ZONE`) | `virtual_fence.zone_event` | "Khung thời gian nào xảy ra xâm nhập khu vực nhiều nhất hôm nay?" |
+| **Nhận diện khuôn mặt** (`FACE`) | `smart_face.smf_face_events` | "Hôm nay có bao nhiêu lượt nhận diện khuôn mặt?" |
+| **Phát hiện ẩu đả** (`FIGHT`) | `anomaly.anomaly_event` | "Hôm nay có vụ ẩu đả nào không?" |
+| **Phát hiện đám đông** (`CROWD`) | `anomaly.anomaly_event` | "Hôm nay có cảnh báo đám đông ở khu vực nào không?" |
+| **Phát hiện leo trèo** (`INTRUSION`) | `anomaly.anomaly_event` | "Hôm nay có phát hiện leo trèo không?" (phân biệt rõ với vùng cấm) |
+| **Phát hiện cháy khói** (`FIRE`) | `firesmoke.fire_smoke_event` | "Hôm nay có cảnh báo cháy hoặc khói không?" |
+| **Giám sát mực nước** (`WATER_LEVEL`) | `anomaly.anomaly_event` | "Mực nước hôm nay có vượt ngưỡng cảnh báo không?" |
 
-## Kiến trúc
+### 2. An toàn & Guardrails (Bằng Code thuần, không qua LLM)
+- **Input Guardrail**: Chặn prompt injection độc hại, từ chối lịch sự câu hỏi ngoài phạm vi thống kê VMS.
+- **Output Guardrail**: Che giấu thông tin cá nhân (PII), đối chiếu kết quả với dữ liệu thật từ DB, giới hạn độ dài câu trả lời.
 
-1 FastAPI service duy nhất phục vụ cả API và static UI (không tách
-frontend/backend):
+### 3. Git-based Prompt Registry (LLMOps)
+- Toàn bộ prompt được quản lý trong thư mục `prompts/` dạng YAML kèm tệp pointer `production.txt`.
+- Đổi phiên bản prompt production hoặc rollback chỉ bằng cách sửa `production.txt` (hoặc git revert commit) mà **không cần sửa hay deploy lại code Python**.
+- Tự động validate biến truyền vào template: raise lỗi `ValueError` rõ ràng nếu thiếu biến bắt buộc.
 
-```
-POST /ask → guardrail_input → agent (LangGraph ReAct) → guardrail_output → answer
-```
+### 4. Observability — Langfuse Tracing Self-hosted
+- Tự động trace từng lượt `/ask` (cây span: `ask` → `chon_tool` → `chay_tool` → `dien_giai`).
+- Mặc định tắt (`MONITORING_ENABLED=false`). Chạy self-hosted qua Docker Compose trên chính máy này, không gửi dữ liệu ra bên ngoài.
 
-`agent` (`src/agent/graph.py`):
+---
 
-```
-seed → agent (LLM #1: chọn tool + tham số) ⇄ tools → pack → answer (LLM #2, tuỳ chọn)
-```
+## Prerequisites (Yêu cầu Tiền đề)
 
-Tối đa **2 lời gọi LLM/câu hỏi**: LLM #1 chọn tool có sẵn + điền tham số
-(function-calling, KHÔNG Text-to-SQL tự do — an toàn + chính xác hơn với
-model nhỏ), LLM #2 (`src/agent/answer.py`) diễn giải số liệu thành câu
-tiếng Việt, có thể tắt qua `ANSWER_USE_LLM=false` để trả lời tức thời bằng
-template dựng sẵn.
+1. **Python**: Môi trường Python ≥ 3.11 (hoặc Conda / venv).
+2. **Database Postgres**: Có sẵn 5 Database nguồn:
+   - `its` (Giám sát phương tiện)
+   - `virtual_fence` (Vùng cấm)
+   - `smart_face` (Nhận diện khuôn mặt)
+   - `firesmoke` (Cháy khói)
+   - `anomaly` (Ẩu đả, đám đông, leo trèo, mực nước)
+3. **LLM Provider**:
+   - Lựa chọn A: **OpenAI API Key** (`gpt-4o-mini` hoặc tương đương).
+   - Lựa chọn B: **Ollama Local** (`qwen2.5:3b-instruct` chạy local cho GPU 4GB VRAM).
+4. **(Tuỳ chọn) Docker & Docker Compose**: Nếu cần bật hạ tầng Langfuse tracing quan sát nội bộ.
 
-Guardrail (`src/guardrails.py`) thuần regex/code, không LLM: chặn prompt
-injection/nội dung độc hại, từ chối câu hỏi ngoài phạm vi, đối chiếu số
-liệu output + redact PII + giới hạn độ dài.
+---
 
-## Prerequisites
-
-- Python ≥ 3.11
-- Postgres đang chạy, có sẵn 5 DB nguồn (`its`, `virtual_fence`,
-  `smart_face`, `firesmoke`, `anomaly` — hoặc tên khác, cấu hình qua
-  `.env`) — xem mục "Tạo DB role read-only" bên dưới
-- 1 API key OpenAI (hoặc Ollama chạy local — xem mục "Chuyển sang model local")
-- (Tuỳ chọn) Docker + Docker Compose — chỉ cần nếu muốn bật quan sát nội
-  bộ qua Langfuse tự host, xem mục "Chạy Langfuse (tuỳ chọn)"
-
-## Cài đặt
-
-Không có frontend/backend tách riêng — `static/index.html` (UI chat, HTML/JS
-thuần) được chính FastAPI phục vụ:
+## Install Commands (Cài đặt)
 
 ```bash
+# 1. Clone repository & chuyển vào thư mục dự án
+cd /home/atin/dong/dong/KCNHungPhu/kcn_hungphu_agent
+
+# 2. Cài đặt các thư viện Python cần thiết
 pip install -r requirements.txt
-cp .env.example .env   # điền OPENAI_API_KEYS + DB_HOST/DB_USER/DB_PASSWORD
-pytest                 # 12 passed — test offline, không cần DB/API key thật
+
+# 3. Tạo tệp cấu hình môi trường từ mẫu
+cp .env.example .env
+
+# 4. Điền các thông tin kết nối Database và LLM Key vào tệp .env
+
+# 5. Chạy bộ test offline để xác nhận môi trường đã sẵn sàng
+pytest -v
+# Kết quả kỳ vọng: 21 passed (100% passed)
 ```
 
-## Biến môi trường
+---
 
-Xem đầy đủ + giải thích từng biến trong [`.env.example`](.env.example).
-Tóm tắt các nhóm chính:
+## Environment Variables (Biến Môi trường)
 
-| Nhóm | Biến | Ghi chú |
-|---|---|---|
-| LLM backend | `LLM_BACKEND`, `LLM_BASE_URL`, `OPENAI_API_KEYS`, `LLM_MODEL` | `openai` hoặc `ollama`, đổi backend chỉ qua `.env` |
-| Answer | `ANSWER_USE_LLM` | `false` = luôn dùng template, không chờ LLM |
-| Database | `DB_HOST`, `DB_USER`, `DB_PASSWORD`, `DB_NAME_ITS`, `DB_NAME_FENCE`, `DB_NAME_FACE`, `DB_NAME_FIRE`, `DB_NAME_ANOMALY` | Dùng role **read-only**, không phải admin. 3 biến `DB_NAME_*` cuối là domain mới (khuôn mặt, cháy khói, ẩu đả/đám đông/leo trèo/mực nước) — xem mục "Tạo DB role read-only" |
-| Guardrail | `GUARDRAILS_MIN_ANSWER_LEN`, `GUARDRAILS_MAX_ANSWER_LEN` | Giới hạn độ dài câu trả lời |
-| Observability | `MONITORING_ENABLED`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | Mặc định `MONITORING_ENABLED=false` — không cần chạy Langfuse để dùng phần còn lại của app. Bật `true` + điền key thật để xem trace từng lượt `/ask`, xem mục "Chạy Langfuse (tuỳ chọn)" |
+Cấu hình trong tệp `.env` (xem giải thích chi tiết tại [`.env.example`](.env.example)):
 
-### Tạo DB role read-only
+| Nhóm | Biến | Mặc định | Giải thích |
+|---|---|---|---|
+| **LLM Backend** | `LLM_BACKEND` | `openai` | `openai` hoặc `ollama` |
+| | `OPENAI_API_KEYS` | (cần điền) | Danh sách API key (phân cách bằng dấu phẩy) |
+| | `LLM_BASE_URL` | (để trống) | Đổi endpoint nếu dùng Ollama (`http://localhost:11434/v1`) |
+| | `LLM_MODEL` | `gpt-4o-mini` | Tên model LLM sử dụng |
+| **Answer Mode** | `ANSWER_USE_LLM` | `true` | `false` = trả về câu template ngay lập tức (dùng khi GPU yếu) |
+| **Databases** | `DB_HOST` | `192.168.1.250` | IP/Host server Postgres |
+| | `DB_PORT` | `5432` | Cổng Postgres |
+| | `DB_USER` | `agent_readonly` | User Postgres (bắt buộc role READ-ONLY) |
+| | `DB_PASSWORD` | (cần điền) | Mật khẩu user read-only |
+| | `DB_NAME_ITS` | `its` | Tên DB giám sát phương tiện |
+| | `DB_NAME_FENCE` | `virtual_fence` | Tên DB vùng cấm |
+| | `DB_NAME_FACE` | `smart_face` | Tên DB khuôn mặt |
+| | `DB_NAME_FIRE` | `firesmoke` | Tên DB cháy khói |
+| | `DB_NAME_ANOMALY` | `anomaly` | Tên DB sự kiện bất thường |
+| | `DB_ORGANIZATION_ID`| `106` | ID tổ chức cần lọc số liệu |
+| **Guardrails** | `GUARDRAILS_MIN_ANSWER_LEN` | `5` | Độ dài tối thiểu câu trả lời hợp lệ |
+| | `GUARDRAILS_MAX_ANSWER_LEN` | `2000` | Độ dài tối đa câu trả lời |
+| **Observability** | `MONITORING_ENABLED` | `false` | `true` = bật gửi trace sang Langfuse self-hosted |
+| | `LANGFUSE_PUBLIC_KEY` | (cần điền) | Public key Langfuse |
+| | `LANGFUSE_SECRET_KEY` | (cần điền) | Secret key Langfuse |
+| | `LANGFUSE_HOST` | `http://localhost:3000` | URL server Langfuse |
 
-**Không dùng user admin/superuser cho agent.** Tạo 1 role riêng chỉ có
-`SELECT` trên đúng các DB cần dùng:
+### Thiết lập DB Role Read-Only trên Postgres
+
+Ứng dụng bắt buộc dùng user đọc-only để đảm bảo an toàn tuyệt đối cho Database:
 
 ```sql
-CREATE ROLE agent_readonly WITH LOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB PASSWORD '...';
+-- 1. Tạo role read-only trên server Postgres (chạy 1 lần):
+CREATE ROLE agent_readonly WITH LOGIN NOSUPERUSER NOCREATEROLE NOCREATEDB PASSWORD 'your_password_here';
 
--- Chạy trên từng DB (its, virtual_fence):
-GRANT CONNECT ON DATABASE its TO agent_readonly;
+-- 2. Cấp quyền kết nối & đọc bảng trên CẢ 5 Database (chạy khi connect vào từng DB):
+-- Thực hiện lần lượt cho từng DB: its, virtual_fence, smart_face, firesmoke, anomaly
+GRANT CONNECT ON DATABASE <dbname> TO agent_readonly;
 GRANT USAGE ON SCHEMA public TO agent_readonly;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_readonly;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO agent_readonly;
 ```
 
-3 DB domain mới (`smart_face`, `firesmoke`, `anomaly`) — cùng pattern,
-CHỈ đổi tên DB, tái dùng đúng role `agent_readonly` đã tạo ở trên (không
-cần tạo role mới):
+---
 
-```sql
--- Chạy trên từng DB (smart_face, firesmoke, anomaly):
-GRANT CONNECT ON DATABASE smart_face TO agent_readonly;
-GRANT USAGE ON SCHEMA public TO agent_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO agent_readonly;
+## Local Run Instructions (Chạy Ứng dụng Local)
 
-GRANT CONNECT ON DATABASE firesmoke TO agent_readonly;
-GRANT USAGE ON SCHEMA public TO agent_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO agent_readonly;
+### 1. Kiến trúc Đơn cổng (Single Service Architecture)
+Ứng dụng sử dụng **1 FastAPI Service duy nhất** phục vụ cả Backend API lẫn Frontend UI tệp tĩnh (`static/index.html`).
+- **Không có backend và frontend tách rời**: Frontend giao tiếp với Backend thông qua đường dẫn tương đối `/ask`, không gặp lỗi CORS hay khác biệt Origin.
+- **Do đó, KHÔNG CẦN câu lệnh chạy frontend và backend riêng biệt.**
 
-GRANT CONNECT ON DATABASE anomaly TO agent_readonly;
-GRANT USAGE ON SCHEMA public TO agent_readonly;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO agent_readonly;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO agent_readonly;
-```
-
-Mỗi lệnh `GRANT`/`ALTER DEFAULT PRIVILEGES` phải chạy khi đang **kết nối
-tới đúng DB đó** (`psql -d <dbname>`) — `GRANT ... ON DATABASE` chạy từ
-bất kỳ đâu, nhưng `GRANT USAGE ON SCHEMA`/`GRANT SELECT ON ALL TABLES`/
-`ALTER DEFAULT PRIVILEGES` áp dụng cho schema/bảng của DB đang kết nối,
-không phải DB đích trong câu lệnh.
-
-Lưu ý: Postgres cấp `CONNECT` mặc định cho `PUBLIC` ở cluster — role này vẫn
-"connect" được vào DB khác trên cùng server, nhưng **không đọc được dữ liệu**
-nếu không có `GRANT SELECT` tường minh ở DB đó. Ứng dụng có thêm 1 lớp chặn
-ở code (`src/db/connection.py`) chỉ cho phép kết nối tới đúng 5 DB đã cấu
-hình trong `.env`, không phụ thuộc hoàn toàn vào quyền Postgres.
-
-## Chạy local — 1 lệnh duy nhất (frontend + backend chung service)
-
-**Không có bước "chạy frontend" và "chạy backend" riêng biệt.**
-`static/index.html` (UI chat, HTML/JS thuần — vai trò "frontend") được
-chính FastAPI (vai trò "backend") phục vụ tại cùng 1 cổng, và gọi
-`fetch("/ask", ...)` bằng **relative path** (cùng origin), không hardcode
-host/port nào — nên chỉ cần:
+### 2. Backend & Frontend Run Command
+Chạy ứng dụng bằng 1 lệnh duy nhất từ thư mục gốc của dự án:
 
 ```bash
 uvicorn src.main:app --reload --port 8000
 ```
 
-### Local URLs
-
-| URL | Vai trò |
-|---|---|
-| [http://localhost:8000/](http://localhost:8000/) | UI chat (frontend) |
-| `POST http://localhost:8000/ask` | API hỏi-đáp (backend) |
-| [http://localhost:8000/health](http://localhost:8000/health) | Kiểm tra nhanh trạng thái backend/DB |
-| [http://localhost:8000/docs](http://localhost:8000/docs) | API docs tương tác (Swagger) |
-
-Đổi cổng (vd. máy đã dùng 8000) chỉ cần đổi `--port` khi chạy `uvicorn` —
-`static/index.html` vẫn hoạt động đúng vì gọi relative path, không cần sửa
-gì trong code hay `.env`.
-
-## Chuyển sang model local (4GB VRAM)
-
-Không sửa code — chỉ đổi `.env`:
-
-```bash
-LLM_BACKEND=ollama
-LLM_MODEL=qwen2.5:3b-instruct-q4_K_M   # hoặc model 3-4B khác vừa VRAM
-# LLM_BASE_URL để trống -> tự dùng http://localhost:11434/v1
-```
-
-`src/llm.py` dùng chung 1 client (`ChatOpenAI` trỏ `base_url` khác) cho cả
-2 backend — xem `_BACKENDS` trong file đó.
-
-## Chạy Langfuse (tuỳ chọn — quan sát nội bộ, không bắt buộc)
-
-Tự host bằng Docker Compose chính thức của Langfuse — không dùng Langfuse
-Cloud:
-
-```bash
-cd langfuse
-docker compose up -d          # lần đầu: tự tạo project + API key qua LANGFUSE_INIT_*
-docker compose ps             # xác nhận đủ 6 container Up/healthy
-```
-
-- UI: [http://localhost:3000](http://localhost:3000) — đăng nhập bằng
-  `LANGFUSE_INIT_USER_EMAIL`/`LANGFUSE_INIT_USER_PASSWORD` trong
-  `langfuse/.env` (file tự sinh, không commit).
-- Lấy `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY` từ
-  `LANGFUSE_INIT_PROJECT_PUBLIC_KEY`/`_SECRET_KEY` trong `langfuse/.env`,
-  điền vào `.env` của app (mục "Biến môi trường" ở trên) + đặt
-  `MONITORING_ENABLED=true`.
-- Dừng: `docker compose down` (giữ data) / thêm `-v` để xoá sạch data.
-
-## Test
-
-```bash
-pytest -v
-```
-
-12 test case offline (`tests/test_offline.py` + `tests/
-test_db_guardrail_new_dbs.py`, tự `skip` phần cần DB thật nếu `.env` chưa
-cấu hình) — xem chi tiết ở [`specs/test-plan.md`](specs/test-plan.md).
-Không có `OPENAI_API_KEYS` (hoặc chạy dưới `pytest`) → agent tự chạy chế
-độ offline, giả 1 tool_call thay vì gọi OpenAI thật.
-
-Test thật (5 câu hỏi mẫu PLATE/ZONE gốc + 6 câu hỏi mẫu domain mới, cần
-`.env` đầy đủ): xem bảng trong `specs/test-plan.md` mục "Test thật".
-
-Chạy full golden dataset (30 case, 8 domain, cần `.env` đầy đủ):
-
-```bash
-python eval/run.py
-```
-
-## Demo với ngrok
-
-App chỉ có 1 cổng duy nhất (FastAPI phục vụ cả API và static UI), nên demo
-qua ngrok không cần cấu hình gì thêm:
-
+Nếu muốn lắng nghe kết nối từ bên ngoài (hoặc expose qua ngrok):
 ```bash
 uvicorn src.main:app --host 0.0.0.0 --port 8000
-ngrok http 8000
 ```
 
-Dùng URL `https://xxxx.ngrok-free.app` ngrok cấp — trỏ thẳng tới UI chat
-(`/`) hoặc API (`/ask`, `/docs`).
+---
 
-## Troubleshooting
+## Local URLs (Đường dẫn Địa phương)
 
-| Vấn đề | Nguyên nhân thường gặp | Cách xử lý |
+Sau khi khởi chạy `uvicorn`, các địa chỉ truy cập trên máy cục bộ bao gồm:
+
+| Trang / Endpoint | URL | Mô tả |
 |---|---|---|
-| `GET /` trả 404 | `static/index.html` không tồn tại (chưa `pip install` đủ hoặc chạy sai thư mục) | Kiểm tra file tồn tại, chạy `uvicorn` đúng từ thư mục gốc project |
-| `POST /ask` trả `503` | DB/LLM lỗi kết nối (sai `.env`, Postgres chưa chạy, hết API key) | Kiểm tra `GET /health`, xem `db_configured`; kiểm tra `DB_HOST`/`OPENAI_API_KEYS` trong `.env` |
-| Mọi câu hỏi đều bị từ chối "ngoài phạm vi" | Câu hỏi không chứa từ khoá nhận diện (`STAT_KEYWORDS` trong `src/guardrails.py`) | Hỏi cụ thể hơn, vd. "Hôm nay có bao nhiêu lượt xe vào?" thay vì câu quá chung chung |
-| Câu trả lời chậm | Model local (Ollama) chạy trên máy yếu, hoặc `ANSWER_USE_LLM=true` chờ thêm 1 lời gọi LLM | Đặt `ANSWER_USE_LLM=false` để trả lời tức thời bằng template |
-| `pytest` báo lỗi kết nối DB | Test offline không nên chạm DB thật — nếu lỗi, kiểm tra có đang chạy nhầm test thật (không có trong `tests/`) | Chỉ `tests/test_offline.py` là test chính thức không cần DB; `tests/test_db_guardrail_new_dbs.py` tự `skip` nếu `.env` chưa cấu hình |
-| Agent trả lời sai domain (vd. hỏi mực nước ra kết quả cháy/khói) | Model chọn nhầm tool khi 2 câu hỏi dùng chung từ khoá (vd. "cảnh báo") | Đã có ghi chú loại trừ tường minh trong docstring từng tool (`src/agent/tools.py`) — nếu vẫn gặp câu hỏi mới bị nhầm domain, thêm ghi chú loại trừ tương tự ở ĐẦU docstring 2 tool dễ nhầm |
-| `pip install openai` lấy bản mới bị lỗi `httpx2` khi gọi LLM thật | `openai` không ghim version, bản mới phụ thuộc `httpx2` có bug tương thích | Đã ghim `openai==2.45.0` trong `requirements.txt` — chạy lại `pip install -r requirements.txt` |
-| `docker compose up` (Langfuse) báo lỗi bind port | Cổng `3000`/`9190`/`5432`/`6379`/`8123`/`9000` đã bị service khác trên máy dùng | Đổi port mapping trong `langfuse/docker-compose.yml` (giữ nguyên port bên phải dấu `:`, chỉ đổi port host bên trái) |
-| Langfuse không nhận trace / UI trống | `MONITORING_ENABLED=false` (mặc định) hoặc key sai | Đặt `MONITORING_ENABLED=true` + đúng `LANGFUSE_PUBLIC_KEY`/`SECRET_KEY` từ `langfuse/.env`; nếu Langfuse service down, `/ask` vẫn trả lời bình thường (chỉ chậm thêm vài giây), không lộ lỗi ra response |
+| **Frontend UI Chat** | [http://localhost:8000/](http://localhost:8000/) | Giao diện Chat trực quan (HTML/JS thuần) |
+| **Backend API Ask** | `POST http://localhost:8000/ask` | Endpoint nhận câu hỏi `{"question": "..."}` và trả về câu trả lời |
+| **Health Check API** | [http://localhost:8000/health](http://localhost:8000/health) | Kiểm tra trạng thái service và kết nối DB |
+| **API Docs (Swagger)** | [http://localhost:8000/docs](http://localhost:8000/docs) | Tài liệu API tương tác tự động |
+---
+
+## Demo with local
+
+Section này hướng dẫn chi tiết cách khởi chạy ứng dụng local và expose ra internet để demo bằng `ngrok`:
+
+### 1. Start Frontend & Backend Locally
+Dự án được thiết kế theo kiến trúc **Single Service** (1 ứng dụng FastAPI duy nhất phục vụ cả Backend API lẫn tệp tĩnh Frontend UI `static/index.html` tại cùng 1 origin):
+- **Khởi chạy Backend & Frontend chung**:
+  ```bash
+  uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+  ```
+- **Cổng sử dụng thực tế (Actual Ports)**:
+  - **Backend API & Frontend UI**: Cổng **`8000`** (`http://localhost:8000/` cho UI Chat và `http://localhost:8000/ask` cho API Endpoint).
+  - **Observability UI** (Langfuse, nếu bật): Cổng **`3000`** (`http://localhost:3000/`).
+
+### 2. Expose Frontend & Backend
+Vì Frontend và Backend phục vụ chung 1 service trên cổng `8000`, bạn **chỉ cần expose duy nhất 1 cổng 8000**:
+```bash
+ngrok http 8000
+```
+- Ngrok sẽ cấp 1 URL công khai HTTPS dạng `https://xxxx.ngrok-free.app`.
+- **Expose Frontend**: Truy cập `https://xxxx.ngrok-free.app/` trực tiếp trên trình duyệt từ thiết bị ngoài.
+- **Expose Backend**: Endpoint API tự động có sẵn tại `https://xxxx.ngrok-free.app/ask` và tài liệu Swagger tại `https://xxxx.ngrok-free.app/docs`.
+
+### 3. Configure Frontend API Base URL to Use Backend URL
+- Giao diện UI (`static/index.html`) được lập trình sử dụng **đường dẫn tương đối (relative path)**:
+  ```javascript
+  const response = await fetch('/ask', { method: 'POST', ... });
+  ```
+- **Tự động tương thích Origin**: Khi mở UI qua URL local (`http://localhost:8000/`) hay URL ngrok (`https://xxxx.ngrok-free.app/`), trình duyệt tự động gửi các yêu cầu API tới đúng Host/Origin tương ứng của Backend mà **không cần sửa hay cấu hình lại bất kỳ dòng code nào** trong `static/index.html` hoặc tệp `.env`.
+
+---
+
+## Hướng dẫn Quản lý Prompt với Prompt Registry
+
+Bạn có thể chỉnh sửa câu chữ hoặc thay đổi phiên bản Prompt đang chạy production mà **không cần sửa hay khởi động lại ứng dụng**:
+
+1. **Xem prompt hiện tại**: Tệp `prompts/agent_system/production.txt` chứa số `"1"` trỏ tới `prompts/agent_system/v1.yaml`.
+2. **Chuyển sang version mới**: Thay đổi nội dung tệp `prompts/agent_system/production.txt` thành `"2"`. Ứng dụng sẽ tự động tải `prompts/agent_system/v2.yaml` ở lượt gọi tiếp theo.
+3. **Rollback**: Sửa `production.txt` quay lại `"1"` (hoặc dùng `git checkout prompts/agent_system/production.txt`).
+
+---
+
+## Troubleshooting Notes (Xử lý Lỗi Thường gặp)
+
+| Lỗi / Hiện tượng | Nguyên nhân | Cách xử lý |
+|---|---|---|
+| `GET /` trả về `404 Not Found` | Thư mục `static/index.html` bị thiếu hoặc chạy `uvicorn` không đúng thư mục gốc dự án | Đảm bảo đang đứng ở `/home/atin/dong/dong/KCNHungPhu/kcn_hungphu_agent` khi chạy `uvicorn` |
+| `POST /ask` trả về `503 Service Unavailable` | Lỗi kết nối DB Postgres hoặc chưa cấu hình OpenAI API key / Ollama | Truy cập `http://localhost:8000/health` xem chi tiết trạng thái kết nối `db_configured`. Kiểm tra lại `DB_HOST`, `DB_PASSWORD` hoặc `OPENAI_API_KEYS` trong `.env` |
+| Câu hỏi hợp lệ bị báo "Ngoài phạm vi" | Câu hỏi thiếu từ khóa thống kê nhận diện trong `STAT_KEYWORDS` (`src/guardrails.py`) | Sử dụng câu hỏi cụ thể rõ ràng hơn, ví dụ: "Hôm nay có bao nhiêu lượt xe vào?" thay vì "Xe cộ ra sao?" |
+| Lỗi `ValueError: Thiếu biến khi render prompt` | Tệp YAML prompt mới định nghĩa biến placeholder (vd. `{context}`) mà code chưa truyền vào | Kiểm tra lại danh sách các biến được định nghĩa trong tệp `prompts/<prompt_name>/vX.yaml` |
+| Lỗi `httpx2` khi gọi OpenAI API | Thư viện `openai` bản mới kéo theo gói `httpx2` bị lỗi đệm nén | Đảm bảo đã ghim `openai==2.45.0` trong `requirements.txt` bằng cách chạy `pip install -r requirements.txt` |
+| Báo lỗi permission `DELETE/UPDATE` trên DB | User Postgres đang dùng là `agent_readonly` | Đây là tính năng an toàn cố ý của hệ thống. Agent chỉ có quyền `SELECT` đọc dữ liệu |
+| Langfuse down khiến API chậm | `MONITORING_ENABLED=true` nhưng container Langfuse bị dừng | API vẫn trả về kết quả bình thường cho người dùng (lỗi tracing được tự động nuốt). Để khắc phục độ trễ, bật lại container Langfuse (`cd langfuse && docker compose up -d`) hoặc đặt `MONITORING_ENABLED=false` |
