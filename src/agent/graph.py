@@ -9,13 +9,17 @@ pack() dựng câu trả lời TEMPLATE (liệt kê số liệu thô) trước, 
 src/agent/answer.py (LLM call thứ 2, tuỳ chọn qua ANSWER_USE_LLM) để diễn
 giải thành câu tiếng Việt tự nhiên — template luôn là fallback khi tắt LLM,
 offline, hoặc lời gọi lỗi.
+
+Observability: `run_agent(..., parent_span=)` nhận span cha từ
+`trace_answer` (main); agent/tools/pack tạo nested `chon_tool` /
+`chay_tool` / `dien_giai`.
 """
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Annotated, TypedDict
+from typing import Annotated, Any, TypedDict
 
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel
@@ -23,6 +27,7 @@ from pydantic import BaseModel
 from src.agent.answer import build_answer
 from src.agent.react import all_tool_json, build_react_subgraph, fresh_user, parse_tool_output
 from src.agent.tools import TOOLS, QueryResult
+from src.monitoring.tracing import trace_step
 
 __all__ = ["run_agent"]
 
@@ -42,6 +47,7 @@ class AgentState(TypedDict, total=False):
     question: str
     result: Agent_Output
     messages: Annotated[list, add_messages]
+    _trace_span: Any
 
 
 _TOOL_NAMES = {t.name for t in TOOLS}
@@ -109,17 +115,30 @@ def _template_answer(queries: list[QueryResult]) -> str:
 
 def _pack(state: AgentState) -> dict:
     question = str(state.get("question") or "")
-    raw_list = all_tool_json(state, _TOOL_NAMES)
-    queries = [q for raw in raw_list if (q := parse_tool_output(raw, QueryResult)) is not None]
-    if not queries:
-        result = Agent_Output(question=question, answer="Chưa truy vấn được dữ liệu.", detail="không có kết quả tool")
-        return {"result": result}
+    with trace_step(state.get("_trace_span"), "dien_giai", input=question) as t:
+        raw_list = all_tool_json(state, _TOOL_NAMES)
+        queries = [q for raw in raw_list if (q := parse_tool_output(raw, QueryResult)) is not None]
+        if not queries:
+            result = Agent_Output(
+                question=question,
+                answer="Chưa truy vấn được dữ liệu.",
+                detail="không có kết quả tool",
+            )
+            t["output"] = {"answer": result.answer, "tools": []}
+            return {"result": result}
 
-    template = _template_answer(queries)
-    answer = build_answer(question, queries, template)
-    tools_used = ",".join(dict.fromkeys(q.tool for q in queries))
-    result = Agent_Output(question=question, answer=answer, query=queries[-1], detail=f"tool: {tools_used}")
-    return {"result": result}
+        template = _template_answer(queries)
+        answer = build_answer(question, queries, template)
+        tools_used = ",".join(dict.fromkeys(q.tool for q in queries))
+        result = Agent_Output(
+            question=question,
+            answer=answer,
+            query=queries[-1],
+            detail=f"tool: {tools_used}",
+        )
+        # Chỉ gắn câu trả lời ngắn + tên tool — không dump rows/secrets.
+        t["output"] = {"answer": answer[:500], "tools": tools_used}
+        return {"result": result}
 
 
 @lru_cache(maxsize=1)
@@ -135,9 +154,10 @@ def _build_graph():
     return graph.compile()
 
 
-def run_agent(inp: Agent_Input) -> Agent_Output:
+def run_agent(inp: Agent_Input, parent_span: Any = None) -> Agent_Output:
+    """`parent_span`: span cha từ `trace_answer` (main). None = không trace con."""
     question = (inp.question or "").strip()
-    return _build_graph().invoke({"question": question})["result"]
+    return _build_graph().invoke({"question": question, "_trace_span": parent_span})["result"]
 
 
 def save_graph_visualization(path: str = "graph.png") -> str:

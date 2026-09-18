@@ -1,4 +1,826 @@
-## 2026-09-17 (Review Phase 5 item 1 vs product-spec.md/test-plan.md)
+## 2026-09-18 (Phase 6, item: Test thật domain mới qua LLM thật)
+
+Tiếp tục làm việc trên repo — ghi nhận: giữa lượt trước và lượt này, Phase
+5 (`src/agent/tools.py` mở rộng `list_khu_vuc`, `src/main.py` wire
+`trace_answer`, `src/agent/graph.py`/`react.py` wire `trace_step` cho
+`chon_tool`/`chay_tool`/`dien_giai`) và 2 item đầu Phase 6 (test offline +
+test guardrail 3 DB mới qua `tests/test_db_guardrail_new_dbs.py`) đã được
+hoàn thành (không thuộc phiên chat này — thấy qua `git log`/file trên
+đĩa, xem `specs/implementation-plan.md` đã đánh dấu `[x]` sẵn). Repo đã là
+git repo thật (`git log`: "hết claude 17/9"), `pytest` hiện có 12 test.
+
+### BLOCKER phát hiện ngay khi bắt đầu item — đã sửa TRƯỚC KHI test được
+- Item cần gọi LLM THẬT (không phải offline) — thử ngay thì dính lại
+  ĐÚNG bug dependency `openai`/`httpx2` đã ghi nhận ngày 2026-09-17
+  (`task_2e390bb8`, khi đó chọn KHÔNG sửa vì ngoài phạm vi lúc đó). Lần
+  này bug chặn TRỰC TIẾP chính item đang làm nên sửa luôn thay vì tiếp
+  tục hoãn.
+- Điều tra: `openai` không ghim version trong `requirements.txt` →
+  `pip install` lấy bản mới nhất (3.14.1/3.15.0), các bản này phụ thuộc
+  `httpx2` (thư viện mới, khác `httpx` cũ) — bản `httpx2` hiện có
+  (2.13.0) có bug tương thích (`Decompressor.decompress() got an
+  unexpected keyword argument 'output_buffer_limit'`).
+- Dò ngược: `langchain-openai` (đã cài) yêu cầu `openai>=2.45.0`. Kiểm
+  tra trực tiếp metadata gói `openai==2.45.0` → `Requires-Dist: httpx`
+  (KHÔNG có `httpx2`) — đây là bản MỚI NHẤT trong dải còn dùng `httpx`
+  thường, thoả điều kiện tối thiểu của `langchain-openai`.
+- **Sửa:** ghim `openai==2.45.0` trong `requirements.txt` (kèm comment
+  giải thích lý do, trỏ tới entry này). Cài lại, verify
+  `invoke_with_tools()` gọi OpenAI thật thành công (trả về `tool_calls`
+  đúng) — không còn lỗi `httpx2`.
+- Dismiss `task_2e390bb8` (đã tự sửa trong phiên này, không cần task
+  riêng nữa).
+
+### Verified — Test thật domain mới (đủ 6/6 câu hỏi mẫu trong test-plan.md)
+Chạy qua `run_agent()` (LangGraph đầy đủ, LLM thật, KHÔNG offline):
+- "Hôm nay có bao nhiêu lượt nhận diện khuôn mặt?" → `count_face_events`,
+  đúng "không có dữ liệu" (dữ liệu FACE tĩnh, dừng từ 2026-09-14).
+- "Hôm nay có vụ ẩu đả nào không?" → `count_anomaly_events`, "118" lượt
+  hôm nay (2026-09-18) — có dữ liệu thật mới hơn lần verify DB trước.
+- "Hôm nay có cảnh báo đám đông ở khu vực nào không?" →
+  `count_anomaly_events`, đúng "không có dữ liệu" (org 106 chưa từng có
+  CROWD_DETECTION, đúng phát hiện ở Phase 3 item 2).
+- **"Hôm nay có phát hiện leo trèo không?" → `count_anomaly_events` (0
+  lượt) — KHÔNG bị nhầm sang `zone_intrusion_by_hour`.** Đây là rủi ro
+  chính đã lo ngại từ Phase 2 (2 khái niệm cùng dịch "xâm nhập") — agent
+  chọn ĐÚNG tool ngay từ lần thử đầu, docstring phân biệt rõ ở Phase 5
+  item 1 phát huy tác dụng.
+- "Hôm nay có cảnh báo cháy hoặc khói không?" → `count_fire_smoke_events`,
+  đúng "không có dữ liệu" (bảng rỗng).
+- "Mực nước hôm nay có vượt ngưỡng cảnh báo không?" →
+  `count_anomaly_events`, "có vượt ngưỡng" (2210 lượt hôm nay) — đúng bản
+  chất log liên tục.
+- Regression check (domain cũ, PLATE): "Hôm nay có bao nhiêu lượt xe
+  vào?" → `count_vehicle_flow`, "1588 lượt" — không bị ảnh hưởng bởi các
+  thay đổi wiring tracing ở Phase 5.
+- `pytest -q` sau khi ghim `openai==2.45.0` → "12 passed" (không
+  regression so với trước khi sửa dependency).
+
+## 2026-09-18 (Review Phase 8 item cuối vs product-spec.md/test-plan.md — có fix)
+
+Review lại đúng 1 feature vừa làm ("Demo golden dataset theo domain") đối
+chiếu `specs/product-spec.md` (Acceptance Criteria) và `specs/test-plan.md`.
+
+### Pass
+- `product-spec.md`: "Agent trả lời đúng, có số liệu thật cho ít nhất 1
+  câu hỏi mẫu mỗi domain (8 domain)" — ĐẠT ĐỦ 8/8 domain sau khi sửa bug,
+  verify bằng báo cáo tổng hợp theo domain (không chỉ demo tay từng câu
+  như checklist yêu cầu tránh).
+- `test-plan.md`: golden dataset 30/30 pass, ổn định qua 3 lần chạy liên
+  tiếp SAU KHI sửa — không phải may mắn 1 lần.
+- Không đụng `eval/run.py` hay dataset — chỉ sửa docstring 2 tool, đúng
+  phạm vi "sửa lỗi liên quan tới feature", không thêm tính năng mới.
+
+### Fail — đã sửa NGAY trong lượt implement (không để tồn đọng sang review)
+- Xem mục "BUG THẬT" ở entry implement — nhầm lẫn `count_fire_smoke_events`
+  ↔ `count_anomaly_events(WATER_LEVEL_DETECTION)` do dùng chung từ khoá
+  "cảnh báo". Đã sửa qua 2 vòng docstring, verify ổn định 8/8 + 3× 30/30.
+
+### Missing
+- Không còn gì trong phạm vi `product-spec.md`/`test-plan.md`.
+  **Toàn bộ `specs/implementation-plan.md` (8 phase) nay đã hoàn thành
+  100% — 0 mục `[ ]` còn lại.** Phần duy nhất chưa có kế hoạch cụ thể là
+  Prompt Registry (xem "Ghi chú — phạm vi không có trong 8 phase này" ở
+  cuối `implementation-plan.md`), vẫn cần user xác nhận có làm tiếp
+  thành 1 phase mới hay bỏ khỏi scope.
+
+## 2026-09-18 (Phase 8, item cuối: Demo golden dataset theo domain)
+
+Item demo — checklist chỉ yêu cầu "chạy eval/run.py, trình bày báo cáo
+pass/fail THEO DOMAIN" (khác `slice.type` sẵn có trong `eval/run.py`).
+Không sửa `eval/run.py` (tránh thêm tính năng ngoài yêu cầu) — viết 1
+script phân tích MỘT LẦN trong scratchpad (KHÔNG thuộc repo), tái dùng
+nguyên `run_pipeline()`/`check_case()` từ `eval/run.py`, chỉ thêm bảng
+ánh xạ `case id → domain` (dựa theo comment domain có sẵn trong
+`v2.yaml`) để nhóm lại báo cáo.
+
+### BUG THẬT tự phát hiện khi chạy demo — đã sửa
+- Lần chạy thứ 2 (trong 3 lần chạy để xác nhận ổn định) phát hiện
+  `agent_stat_v2_017` ("Hôm nay mực nước có vượt ngưỡng cảnh báo
+  không?") FAIL — agent gọi `count_fire_smoke_events` thay vì
+  `count_anomaly_events`. Test lại độc lập 6 lần liên tiếp: **5/6 lần
+  agent gọi SAI hoàn toàn** (chỉ thử `count_fire_smoke_events` với
+  `entity_type=FIRE` rồi `SMOKE`, KHÔNG BAO GIỜ gọi tool đúng) — đây là
+  lỗi THẬT, tái lập ổn định, không phải nhiễu ngẫu nhiên đơn lẻ.
+- **Nguyên nhân:** câu hỏi mực nước dùng chữ "cảnh báo"/"ngưỡng cảnh
+  báo" — trùng với câu mở đầu docstring `count_fire_smoke_events`
+  ("Đếm CẢNH BÁO cháy/khói..."), khiến model liên tưởng sai. Khác với
+  cặp "leo trèo"/"vùng cấm" (đã có ghi chú loại trừ tường minh 2 chiều từ
+  trước, hoạt động ổn định qua nhiều lượt test) — cặp "mực nước"/"cháy
+  khói" CHƯA có ghi chú loại trừ tương tự.
+- **Sửa (2 vòng):**
+  1. Vòng 1 — thêm câu loại trừ ở GIỮA docstring `count_fire_smoke_events`
+     + bổ sung ghi chú ở dòng `WATER_LEVEL_DETECTION` trong
+     `count_anomaly_events`. Test lại 6 lần: KHÔNG cải thiện (vẫn 5/6 sai
+     hoàn toàn) — câu loại trừ đặt giữa docstring không đủ trọng số.
+  2. Vòng 2 — viết lại ĐẦU TIÊN của docstring `count_fire_smoke_events`
+     thành câu loại trừ tường minh ("CHỈ dùng cho CHÁY hoặc KHÓI. Nếu câu
+     hỏi nhắc 'mực nước'... KHÔNG được dùng tool này...") thay vì mô tả
+     chức năng trước rồi mới loại trừ sau. Test lại 8 lần: **8/8 lần
+     CUỐI CÙNG đều gọi đúng `count_anomaly_events`** (3/8 lần vẫn thử
+     `count_fire_smoke_events` trước rồi tự sửa sang tool đúng — tốn 1
+     lượt gọi thừa nhưng KHÔNG ảnh hưởng câu trả lời cuối, vì `_pack()`
+     chỉ lấy kết quả tool của LƯỢT GẦN NHẤT).
+- File sửa: `src/agent/tools.py` — chỉ đổi docstring 2 tool
+  (`count_fire_smoke_events`, `count_anomaly_events`), KHÔNG đổi logic
+  code nào.
+
+### Verified
+- `pytest -q` → "12 passed" trong suốt quá trình sửa (chỉ đổi docstring,
+  không đổi hành vi hàm).
+- Gọi trực tiếp `run_agent()` 4 lần cho câu hỏi mực nước → cả 4 lần
+  `detail: tool: count_anomaly_events`, answer đúng ngữ nghĩa + số liệu
+  tăng dần hợp lý (log liên tục).
+- Chạy script demo theo domain **3 lần liên tiếp SAU KHI sửa** → cả 3
+  lần đủ **30/30 pass**, tất cả 8 domain + comparison + out_of_scope +
+  injection đều 100%.
+
+### Báo cáo demo cuối cùng (bằng chứng "agent trả lời đúng cả 8 domain")
+```
+  [OK] PLATE (phuong tien)         : 4/4 pass
+  [OK] ZONE (vung cam)             : 2/2 pass
+  [OK] FACE (khuon mat)            : 2/2 pass
+  [OK] FIGHT (au da)               : 2/2 pass
+  [OK] CROWD (dam dong)            : 2/2 pass
+  [OK] INTRUSION (leo treo)        : 2/2 pass
+  [OK] FIRE (chay khoi)            : 2/2 pass
+  [OK] WATER_LEVEL (muc nuoc)      : 2/2 pass
+  [OK] COMPARISON (cheo domain)    : 6/6 pass
+  [OK] OUT_OF_SCOPE                : 3/3 pass
+  [OK] INJECTION                   : 3/3 pass
+TONG: 30/30 pass (11 domain/nhom)
+```
+
+### Bài học quy trình (bổ sung bài học đã ghi ở lượt "eval/run.py full 30 case")
+- Kỹ thuật "đặt câu loại trừ ở đầu docstring thay vì giữa/cuối" hiệu quả
+  RÕ RỆT hơn khi 2 tool dễ nhầm dùng chung 1 từ khoá phổ biến (ở đây là
+  "cảnh báo"). Nếu sau này thêm domain mới dùng chung từ khoá với domain
+  cũ, nên áp dụng ngay pattern này (loại trừ NGAY ĐẦU docstring) thay vì
+  chờ phát hiện qua test rồi mới sửa 2 vòng như lần này.
+
+## 2026-09-18 (Review Phase 8 item 1 vs product-spec.md/test-plan.md)
+
+Review lại đúng 1 "feature" vừa làm ("Demo Langfuse") đối chiếu
+`specs/product-spec.md` và `specs/test-plan.md`.
+
+### Pass
+- Dữ liệu trace thật tồn tại đúng, đủ input/output/latency/span con —
+  verify tận ClickHouse (nguồn sự thật, không qua lớp UI có thể che giấu
+  lỗi).
+- Link trực tiếp vào trace là link THẬT (project_id/trace_id lấy từ dữ
+  liệu thật vừa tạo, không phải đoán URL pattern rồi hy vọng đúng).
+
+### Fail
+- Không có lỗi phát hiện được trong phạm vi có thể verify từ môi trường
+  này.
+
+### Missing (giới hạn môi trường, đã nêu rõ — không phải bug)
+- **Chưa verify UI THỰC SỰ RENDER ĐÚNG** (không có trình duyệt/JS engine
+  trong môi trường agent này để chạy React/Next.js phía client) — `curl`
+  vào URL trace chỉ xác nhận server trả về ĐÚNG SPA shell HTML (title
+  "Langfuse", `200 OK`), KHÔNG chứng minh trang con (route
+  `/traces/<id>`) render đúng sau khi JS chạy và gọi API nội bộ. Dữ liệu
+  nền (ClickHouse) đã xác nhận đúng và đầy đủ, và UI dùng chung API đã
+  verify hoạt động (`/api/public/v2/observations`), nên khả năng cao UI
+  render đúng — nhưng đây là suy luận, không phải quan sát trực tiếp.
+  **User nên tự mở link trong change-log để xác nhận bằng mắt** trước khi
+  coi demo này hoàn tất 100%.
+
+## 2026-09-18 (Phase 8, item 1: Demo Langfuse)
+
+Item demo (không có code mới) — môi trường agent này không có trình
+duyệt/GUI để tự chụp màn hình UI, nên "demo" được thực hiện bằng cách:
+gửi 1 câu hỏi DEMO mới (khác câu test trước, để dễ nhận ra trong UI) qua
+`/ask` thật với `MONITORING_ENABLED=true`, verify đủ trace qua API/DB
+thật, rồi đưa link + hướng dẫn đăng nhập để user tự mở xem trên trình
+duyệt của họ.
+
+### Verified
+- Gửi `/ask` thật: "Demo Langfuse Phase 8: hôm nay có bao nhiêu lượt xe
+  máy vào?" → `200`, answer "Hôm nay có 955 lượt xe máy vào."
+- Trace đủ 5 span, đúng cấu trúc cây, có `start_time`/`end_time` (suy ra
+  latency): `ask` (7.5s tổng) → `chon_tool` (4.66s, vòng 1) → `chay_tool`
+  (76ms) → `chon_tool` (1.85s, vòng 2) → `dien_giai` (0.94s).
+- URL trực tiếp vào trace (`http://localhost:3000/project/<projectId>/
+  traces/<traceId>`) trả `200` khi `curl` — trang tồn tại thật, không
+  phải link bịa.
+
+### Demo — thông tin để user tự mở
+- **Link trace demo:** http://localhost:3000/project/a510ed1c-3afc-43c8-b9e3-1fc9c36f235d/traces/69e9b0bcb228712c135da40b7666d0a6
+  (nếu máy này không public, cần SSH tunnel/VPN vào cổng `3000` trước).
+- **Đăng nhập UI:** email `LANGFUSE_INIT_USER_EMAIL` trong `langfuse/.env`
+  (`admin@agent-atin.local`); mật khẩu ở biến `LANGFUSE_INIT_USER_PASSWORD`
+  cùng file — KHÔNG in ra đây, tự mở file để lấy.
+- Trang tổng quan tất cả trace (không cần biết trace_id): `http://localhost:3000/project/a510ed1c-3afc-43c8-b9e3-1fc9c36f235d/traces`.
+
+## 2026-09-18 (Review Phase 7 item cuối vs product-spec.md/test-plan.md)
+
+Review lại đúng 1 feature vừa làm ("SQL role cho 3 DB mới trong README")
+đối chiếu `specs/product-spec.md` và `specs/test-plan.md`. Thay đổi thuần
+docs, không có test runtime tương ứng — review tập trung vào tính CHÍNH
+XÁC và AN TOÀN của hướng dẫn (vì đây là SQL người dùng thật sẽ copy-paste
+chạy trên Postgres thật).
+
+### Pass
+- SQL khớp chính xác với script ĐÃ CHẠY THẬT THÀNH CÔNG ở Phase 2 item 1
+  — không phải suy đoán/viết mới chưa kiểm chứng.
+- Ghi chú "phải kết nối đúng DB trước khi chạy GRANT USAGE/SELECT" giúp
+  tránh đúng loại lỗi vận hành thật đã có thể gặp (nếu ai đó chạy cả khối
+  SQL từ 1 session `psql` duy nhất không đổi DB giữa chừng, `GRANT
+  USAGE ON SCHEMA public` sẽ áp dụng NHẦM cho DB đang connect, không phải
+  DB vừa nhắc trong dòng `GRANT CONNECT ON DATABASE X` phía trên).
+- Vẫn dùng đúng role `agent_readonly` có sẵn (không tự ý đổi kiến trúc
+  gợi ý "tạo role riêng cho từng domain" — giữ đúng quyết định đơn giản
+  đã chọn ở Phase 2).
+- `pytest` sạch, không đụng code.
+
+### Fail
+- Không có.
+
+### Missing
+- Không còn gì trong phạm vi Phase 7. **Phase 7 (Local Run Instructions)
+  đã hoàn thành đủ 3/3 item.**
+
+## 2026-09-18 (Phase 7, item cuối: `README.md` — SQL role cho 3 DB mới)
+
+### Added
+- `README.md` mục "Tạo DB role read-only" — thêm khối SQL thứ 2 cho
+  `smart_face`/`firesmoke`/`anomaly`, cùng pattern GRANT như 2 DB cũ,
+  tái dùng ĐÚNG role `agent_readonly` có sẵn (không tạo role mới — khớp
+  quyết định thật đã làm ở Phase 2 item 1). Thêm 1 đoạn lưu ý mới: mỗi
+  lệnh `GRANT USAGE`/`GRANT SELECT ON ALL TABLES`/`ALTER DEFAULT
+  PRIVILEGES` phải chạy trong khi ĐANG KẾT NỐI tới đúng DB đó (không phải
+  chạy 1 lần từ DB bất kỳ) — chi tiết dễ bỏ sót khi làm tay, có thể gây
+  "grant chạy không lỗi nhưng vẫn không SELECT được" nếu áp dụng nhầm DB
+  đang connect.
+- Sửa 2 câu văn liền kề (không phải thêm mục mới) cho khớp số lượng DB
+  thật: "đúng 2 DB" → "đúng các DB", "đúng 2 DB đã cấu hình" → "đúng 5 DB
+  đã cấu hình" — cả 2 câu nằm NGAY TRONG đoạn văn đang sửa (không phải
+  file/mục khác), không tính là lấn phạm vi.
+
+### Verified
+- Đối chiếu SQL mới với chính script Python đã CHẠY THẬT VÀ THÀNH CÔNG ở
+  Phase 2 item 1 (`GRANT CONNECT`/`GRANT USAGE`/`GRANT SELECT ON ALL
+  TABLES`/`ALTER DEFAULT PRIVILEGES`, mỗi DB connect riêng trước khi
+  chạy) — khớp chính xác, không viết SQL mới chưa kiểm chứng.
+- `pytest -q` → "12 passed" (thay đổi thuần docs, không đụng code).
+
+## 2026-09-18 (Review Phase 7 item 1 vs product-spec.md/test-plan.md)
+
+Review lại đúng 1 feature vừa làm ("bảng biến môi trường README") đối
+chiếu `specs/product-spec.md` và `specs/test-plan.md`. Đây là thay đổi
+thuần docs nên không có test runtime tương ứng trong `test-plan.md` —
+review tập trung vào tính CHÍNH XÁC của nội dung.
+
+### Pass
+- Tên biến khớp 100% với `.env.example` thật (đã verify bằng `grep`,
+  không bịa tên).
+- Đường dẫn `langfuse/docker-compose.yml` được nhắc trong README —
+  verify file thật tồn tại đúng vị trí.
+- Không đụng code, không cần chạy `pytest`.
+
+### Fail
+- Không có.
+
+### Missing (KHÔNG sửa — thuộc phạm vi khác, không phải item này)
+- Mục "Prerequisites" (README, phía trên) vẫn chỉ nhắc "Postgres... có
+  sẵn 2 DB `its` và `virtual_fence`" — chưa nhắc 3 DB mới. Mục "Cài đặt &
+  chạy local" vẫn ghi "pytest # 5 passed" (nay thật ra là 12). Cả 2 chỗ
+  này KHÔNG thuộc checklist item "bảng biến môi trường" (Phase 7 item 1)
+  — checklist Phase 7 chỉ có đúng 2 item (bảng biến môi trường + SQL
+  role cho 3 DB mới), không bao gồm Prerequisites/Cài đặt. Không sửa ở
+  đây để tránh lấn phạm vi; ghi nhận lại phòng khi cần 1 item riêng dọn
+  toàn bộ README sau này.
+
+## 2026-09-18 (Phase 7, item 1: `README.md` — bảng biến môi trường)
+
+### Added
+- `README.md` mục "Biến môi trường" — thêm `DB_NAME_FACE`/`DB_NAME_FIRE`/
+  `DB_NAME_ANOMALY` vào dòng "Database" (kèm ghi chú domain tương ứng),
+  thêm dòng mới "Observability" (`MONITORING_ENABLED`,
+  `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`) kèm ghi
+  chú mặc định tắt + trỏ `langfuse/docker-compose.yml`.
+
+### Verified
+- Đối chiếu tên biến với `.env.example` thật (`grep`) — khớp chính xác
+  cả 7 biến mới thêm vào README, không có tên bịa/sai chính tả.
+- Không sửa code, không chạy `pytest` cần thiết cho thay đổi thuần docs
+  này (đã xác nhận không đụng file `.py` nào).
+
+## 2026-09-18 (Review Phase 6 "Test Langfuse" vs product-spec.md/test-plan.md)
+
+Review lại đúng 1 "feature" vừa làm ("Test Langfuse qua `/ask` thật") đối
+chiếu `specs/product-spec.md` (Acceptance Criteria) và `specs/test-plan.md`
+mục "Test Langfuse tracing" (4 test case đầy đủ — 2 đã verify ở Phase 4
+mức module, 2 còn lại verify đầy đủ ở đây qua `/ask` thật).
+
+### Pass
+- `test-plan.md` #1: verify lại lần nữa qua `.env` thật của app (không
+  chỉ giả lập biến môi trường) — `pytest` "12 passed".
+- `test-plan.md` #2: trace THẬT của 1 lượt `/ask` xuất hiện đúng cấu
+  trúc (span cha `ask` + span con `chon_tool`/`chay_tool`/`dien_giai`) —
+  đây là lần ĐẦU TIÊN verify được test #2 qua ĐÚNG endpoint `/ask` (Phase
+  4 chỉ verify được ở mức gọi `trace_answer()`/`trace_step()` trực tiếp,
+  chưa qua `main.py` thật).
+- `test-plan.md` #3: verify TẬN NƠI LƯU (ClickHouse `events_full`, đọc
+  trực tiếp `input`/`output`/`metadata_*`), không chỉ tin "code không
+  raise lỗi" — không có secret nào ngoài `public_key` (đúng bản chất,
+  không phải bí mật).
+- `test-plan.md` #4: `/ask` không crash khi Langfuse down — verify qua
+  ĐÚNG endpoint thật (Phase 4 chỉ verify ở mức `trace_answer()` đơn lẻ).
+- `product-spec.md`: "Langfuse chạy self-host... xem được trace của 1
+  lượt /ask thật" — ĐẠT ĐỦ, không còn thiếu sót nào so với Phase 4.
+
+### Fail
+- Không có — cả 4/4 test case `test-plan.md` đều pass khi verify qua
+  đúng endpoint `/ask` thật.
+
+### Ghi nhận thêm (không phải fail, đã ghi ở entry implement)
+- Độ trễ khi Langfuse down THẬT SỰ cao hơn ước tính Phase 4 (~8.3s thay
+  vì ~3.8s) vì `/ask` có nhiều span lồng nhau hơn model đơn giản đã test
+  trước đó — đây là thông tin CHÍNH XÁC HƠN bổ sung cho quyết định đã ghi
+  ở Phase 4 (chấp nhận độ trễ này cho MVP), không phải vấn đề mới cần sửa
+  ngay.
+
+### Missing
+- Không còn gì trong phạm vi `test-plan.md` mục "Test Langfuse tracing"
+  hay `product-spec.md` liên quan tới observability. **Phase 6 (Validation
+  and Error States) đã hoàn thành đủ 10/10 item.**
+
+## 2026-09-18 (Phase 6, item cuối: Test Langfuse qua `/ask` thật)
+
+### Verified (không có code mới — item test-only, giống các "test kết nối
+thật" trước đó)
+- **`MONITORING_ENABLED=false` (mặc định, `.env` thật của app KHÔNG có
+  biến `LANGFUSE_*`):** `pytest -q` → "12 passed", y hệt trước Phase 4.
+- **`MONITORING_ENABLED=true` + key thật (đọc từ `langfuse/.env`, không
+  ghi vào `.env` app — chỉ set env var tạm cho tiến trình test, giữ đúng
+  "mặc định TẮT" của `product-spec.md`) + gọi `POST /ask` thật qua
+  `TestClient`:** trả `200`, answer đúng số liệu thật. Verify trace tận
+  **ClickHouse** (`events_full`, không chỉ tin log Python) — thấy đủ cây
+  span lồng nhau cho ĐÚNG 1 lượt `/ask`: `ask` → `chon_tool` →
+  `chay_tool` → `chon_tool` (vòng 2) → `dien_giai`, đúng cấu trúc thiết
+  kế ở Phase 4/5.
+- **Không lộ secret:** đọc trực tiếp cột `input`/`output`/`metadata_*`
+  của span `ask`/`dien_giai` — chỉ có câu hỏi, answer, tên tool,
+  `row_count`, `latency_s`, và `public_key` (đúng bản chất — public key
+  Langfuse vốn để công khai, không phải bí mật). KHÔNG thấy
+  `OPENAI_API_KEYS`/`DB_PASSWORD`/`secret_key` ở bất kỳ trường nào.
+- **Langfuse service down** (`LANGFUSE_HOST` trỏ cổng không ai lắng
+  nghe): `POST /ask` vẫn trả `200` với answer đúng, KHÔNG crash — mất
+  **~8.3s** (cao hơn ước tính ~3.8s ghi nhận lúc test `tracing.py` đơn lẻ
+  ở Phase 4, vì `/ask` thật có NHIỀU span lồng nhau — mỗi span đều thử
+  flush/retry riêng — cộng dồn độ trễ).
+
+### Ghi nhận (không phải bug của item này, đã có sẵn trong change-log
+Phase 4 nhưng nay có số liệu THẬT chính xác hơn)
+- Độ trễ khi Langfuse down: ~8.3s cho `/ask` thật (không phải ~3.8s như
+  ước tính ở mức module đơn lẻ) — MVP chấp nhận được (tần suất Langfuse
+  down thấp trong vận hành bình thường), nhưng nếu cần tối ưu sau này,
+  hướng đi là giảm số lần retry của OTel exporter hoặc set timeout ngắn
+  hơn cho riêng trường hợp lỗi kết nối (không phải rate-limit).
+
+## 2026-09-18 (Review Phase 6 "Chạy eval/run.py full 30 case" vs product-spec.md/test-plan.md)
+
+Review lại đúng 1 feature vừa làm ("chạy `eval/run.py` full 30 case, sửa
+dataset cho khớp thật") đối chiếu `specs/product-spec.md` và
+`specs/test-plan.md`.
+
+### Pass
+- `product-spec.md`: "eval/datasets/agent_stat có đủ 30 case phủ 8
+  domain, chạy được bằng eval/run.py, in được tỷ lệ pass/fail theo
+  slice" — đúng, 30/30 pass, in đủ bảng theo `slice.type`.
+- `test-plan.md`: "3 case out_of_scope + 3 case injection PHẢI vẫn pass
+  nguyên" — đúng, cả 2 slice 3/3 xuyên suốt mọi lần chạy (kể cả trước khi
+  sửa dataset) — xác nhận việc mở rộng `STAT_KEYWORDS`/tool ở các Phase
+  trước KHÔNG gây regression cho 2 slice này.
+- Verify KHÔNG chỉ 1 lần: chạy lại 3 lần liên tiếp sau khi sửa xong, đủ
+  30/30 cả 3 lần — loại trừ khả năng "pass may mắn" do tính không xác
+  định của LLM (bài học trực tiếp từ chính quá trình sửa case #011 —
+  từng pass rồi fail lại giữa các lần chạy).
+- `exit code` đúng 0 khi toàn bộ pass — script dùng được cho CI như thiết
+  kế ở Phase 2.
+
+### Fail
+- Không còn lỗi tồn đọng sau các lượt sửa ở entry implement — 8 case
+  dataset đã sửa (không sửa code app).
+
+### Missing (đúng phạm vi, KHÔNG phải thiếu sót của feature này)
+- Item cuối cùng của Phase 6 ("Test Langfuse") chưa làm — chưa tới lượt.
+
+## 2026-09-18 (Phase 6, item: Chạy `eval/run.py` full 30 case)
+
+### Added/Fixed — `eval/datasets/agent_stat/v2.yaml`
+Chạy `eval/run.py` lần đầu (30/30 case, LLM thật) → 4 case fail:
+`agent_stat_v2_009/012/014/019`. Điều tra từng case bằng cách gọi
+`run_agent()` trực tiếp — KHÔNG có case nào là bug thật của agent/tool,
+toàn bộ là assertion trong dataset quá cứng nhắc hoặc dựa trên giả định
+đã lỗi thời:
+- **#009** (FIGHT_DETECTION "hôm nay"): assertion cũ giả định domain này
+  TĨNH (dừng dữ liệu từ 2026-09-16) — verify lại thấy SAI: 2026-09-18 đã
+  có 118 rồi 125 lượt hôm đó (dữ liệu sống, không tĩnh như tưởng). Sửa:
+  bỏ assertion "không có dữ liệu" cố định, chỉ giữ `must_include_tool`.
+- **#012/#014** (CROWD/INTRUSION khoảng ngày cụ thể): số liệu thật VẪN
+  đúng là 0 (verify lại), nhưng LLM diễn giải "0 lượt" thay vì đúng chữ
+  "không có dữ liệu" — đổi assertion sang số `"0"`.
+- **#019** (phân loại xe máy/ô tô): LLM trả lời bằng tiếng Việt tự nhiên
+  ("Xe máy"/"Ô tô"), không lặp lại nguyên văn enum "MOTORCYCLE"/"CAR" —
+  đổi assertion sang từ tiếng Việt thật.
+
+Chạy lại → 29/30 pass, phát sinh case fail MỚI **#011** (CROWD "hôm
+nay") — cùng lỗi diễn đạt như #012/#014 (đổi sang "0"). Rà soát toàn bộ 4
+case còn lại dùng `must_include: ["không có dữ liệu"]` (#007 FACE, #011
+CROWD, #015/#016 FIRE) và sửa 1 lượt (thay vì sửa từng case qua nhiều lần
+chạy):
+- #011/#015/#016: đổi sang `must_include: ["0"]`.
+- #007 (FACE "hôm nay"): sau bài học #009, không còn chắc FACE mãi mãi
+  rỗng — bỏ hẳn assertion text, chỉ giữ `must_include_tool`.
+- **#020** (seat-limit note): fail thêm ở vòng test tiếp — LLM diễn giải
+  câu mở đầu khác nhau nên cụm "không phân loại" không luôn khớp. Sửa
+  sang cụm CỐ ĐỊNH trong code (`_SEAT_LIMIT_NOTE`, `src/agent/answer.py`
+  dòng 35-38) — chuỗi này do CODE nối cứng vào cuối câu trả lời, không
+  phụ thuộc LLM diễn giải, nên đảm bảo luôn xuất hiện y hệt.
+
+Chạy lại → 27/30 pass, 3 case fail MỚI (**#011/#015/#016** — cùng những
+case vừa sửa!) vì lý do SÂU HƠN: `count_anomaly_events`/
+`count_fire_smoke_events` KHÔNG có `group_by` → SQL `count(*)` không
+`GROUP BY` LUÔN trả về ĐÚNG 1 dòng `[[0]]`; nhưng nếu LLM tự thêm
+`group_by` (vd. `zone_name`), `GROUP BY` trên 0 dòng khớp → trả về 0 DÒNG
+(rỗng hoàn toàn, không phải 1 dòng chứa số 0) → `_pack()` rơi về nhánh
+"Không có dữ liệu khớp câu hỏi..." thay vì "0 lượt...". Đây là 2 hành vi
+ĐÚNG khác nhau của CÙNG 1 tool tuỳ tham số LLM tự chọn — không thể đoán
+trước LLM có truyền `group_by` hay không giữa các lần chạy. **Quyết định
+cuối:** bỏ HẲN assertion text cứng cho 4 case luôn-rỗng (#011/#015/#016,
+và #007 đã bỏ từ trước) — chỉ giữ `must_include_tool`, đúng quy ước v1
+"số liệu không đoán trước được chỉ dùng assertion cấu trúc".
+
+### Verified
+- `pytest -q` → "12 passed" trong suốt quá trình sửa dataset (không đụng
+  code app).
+- `python3 eval/run.py` (LLM thật, không offline) → **30/30 pass**, chạy
+  LẶP LẠI 2 LẦN liên tiếp để xác nhận ổn định (không phải may mắn 1 lần) —
+  cả 2 lần đều 30/30, `injection: 3/3`, `out_of_scope: 3/3` (yêu cầu bắt
+  buộc của checklist item).
+- YAML vẫn đúng 30 case, phân bổ 18/6/3/3, không trùng `id` sau toàn bộ
+  chỉnh sửa.
+
+### Bài học quy trình (ghi lại để tránh lặp lại)
+- Assertion `must_include` trên TEXT tự do do LLM sinh ra (không phải
+  template cố định trong code) luôn có rủi ro brittle — LLM có nhiều cách
+  diễn đạt ĐÚNG cho cùng 1 sự thật ("0 lượt" vs "không có dữ liệu" vs
+  "không có cảnh báo nào"). Assertion an toàn nhất là trên: (a) tool nào
+  được gọi (`must_include_tool`, ổn định), (b) chuỗi CỐ ĐỊNH TRONG CODE
+  không qua LLM (vd. `_SEAT_LIMIT_NOTE`), hoặc (c) giá trị SỐ khi chắc
+  chắn định dạng SQL luôn trả cùng 1 shape (không group_by). Tránh assert
+  cụm từ tự nhiên mà chỉ LLM mới quyết định cách viết.
+
+## 2026-09-18 (Review Phase 6 "Test thật domain mới" vs product-spec.md/test-plan.md)
+
+Review lại đúng 1 feature vừa làm ("Test thật domain mới qua LLM thật")
+đối chiếu `specs/product-spec.md` (Acceptance Criteria) và
+`specs/test-plan.md` mục "Test thật" (domain mới).
+
+### Pass
+- Đủ 6/6 câu hỏi mẫu domain mới trong `test-plan.md`, đúng tool, đúng
+  hành vi (có dữ liệu thật hoặc "không có dữ liệu" đúng sự thật).
+- **Verify sâu hơn (phát hiện lúc review, không chỉ tin `detail` ở lượt
+  implement):** case "đám đông" và "leo trèo" đều trả lời "không có dữ
+  liệu" — ban đầu lo ngại đây có thể là TRÙNG NGẪU NHIÊN (cả
+  `CROWD_DETECTION` và `INTRUSION_DETECTION` đều =0 cho org 106, nên dù
+  agent lỡ dùng SAI event_type vẫn ra kết quả rỗng giống nhau, che giấu
+  lỗi). Kiểm tra trực tiếp `tool_calls` thật trong state graph (không chỉ
+  đọc `answer`/`detail`) → xác nhận agent truyền ĐÚNG và KHÁC NHAU:
+  `event_type='CROWD_DETECTION'` cho câu đám đông,
+  `event_type='INTRUSION_DETECTION'` cho câu leo trèo — không phải trùng
+  ngẫu nhiên. Đây chính là loại lỗi tiềm ẩn mà nguyên tắc "chỉ tin log,
+  không tin im lặng" (đã áp dụng nhiều lần trong các lượt review trước)
+  nhắm tới.
+- `product-spec.md`: không hallucinate khi rỗng (FACE/CROWD/INTRUSION/
+  FIRE), số liệu thật khi có (FIGHT=118, WATER_LEVEL=2210 lượt hôm nay).
+- Regression PLATE domain vẫn đúng sau khi Phase 5 wiring tracing.
+
+### Fail
+- Không tìm thấy lỗi nào trong phạm vi feature này.
+
+### Missing (đúng phạm vi, KHÔNG phải thiếu sót của feature này)
+- Domain ZONE (vùng cấm) không test lại trong lượt này — đã verify đủ ở
+  v1 (5 câu hỏi mẫu gốc) và không bị đụng chạm bởi domain mới, không cần
+  lặp lại.
+- `eval/run.py` full 30 case + Test Langfuse qua `/ask` thật — 2 item
+  TIẾP THEO trong Phase 6, chưa tới lượt.
+
+## 2026-09-18 (Review Phase 6 item 2 vs product-spec.md/test-plan.md)
+
+Review lại đúng feature vừa làm (pytest guardrail 3 DB mới) đối chiếu
+`specs/product-spec.md` và `specs/test-plan.md`.
+
+### Pass
+- product-spec Hạ tầng: đọc-only Postgres qua role riêng — khóa bằng test
+  SELECT OK + DELETE/UPDATE bị chặn trên `smart_face`/`firesmoke`/`anomaly`.
+- test-plan "2 lớp": app → `ReadOnlySqlTransaction`; GRANT thô →
+  `InsufficientPrivilege`; skip sạch khi không có `.env` (không phá
+  offline pytest).
+- Không thêm dependency; không đổi logic runtime (chỉ test + docs).
+
+### Fail
+- Không tìm thấy lỗi trong phạm vi item (chưa chạy lệnh verify trên máy
+  này theo policy — user chạy `pytest` với `.env` để xác nhận 3 passed).
+
+### Missing (Phase 6 item sau — không sửa ở đây)
+- Test `/ask` thật 5 domain, `eval/run.py` 30 case, Langfuse E2E.
+
+### Fixed
+- `test-plan.md` còn mô tả "whitelist chưa có 3 DB" — đã sửa cho khớp
+  Phase 3+.
+- Comment `config.py` còn ghi whitelist chưa dùng ở connection — đã sửa.
+
+---
+
+## 2026-09-18 (Phase 6, item 2: test guardrail an toàn 3 DB mới)
+
+### Added
+- `tests/test_db_guardrail_new_dbs.py` — pytest tái chạy được (skip nếu
+  chưa `DB_HOST`), cover đúng 2 lớp trong `test-plan.md`:
+  1. App/`get_connection`: SELECT OK trên face/fire/anomaly; DELETE/UPDATE
+     → `ReadOnlySqlTransaction`.
+  2. GRANT/`psycopg2.connect` thô: DELETE → `InsufficientPrivilege`.
+- `specs/implementation-plan.md` Phase 6 item này → `[x]`.
+- `specs/test-plan.md` — cập nhật mục 2 lớp (bỏ wording lỗi thời "whitelist
+  chưa có 3 DB").
+- `src/config.py` — comment DB mới: whitelist đã nằm ở `connection.py`.
+
+### Notes / cách test (user chạy tay)
+```bash
+cd kcn_hungphu_agent
+# Offline/CI (không .env DB): 3 test mới bị skip — pytest vẫn xanh
+pytest -q
+
+# Có .env DB thật (role read-only):
+pytest -q tests/test_db_guardrail_new_dbs.py -v
+# Kỳ vọng: 3 passed (không skip)
+```
+
+---
+
+
+Review lại đúng feature vừa làm (test offline domain mới) đối chiếu
+`specs/product-spec.md` và `specs/test-plan.md`.
+
+### Pass
+- test-plan domain offline #1: `LOI_BIA` → error whitelist, không mở DB
+  (monkeypatch).
+- test-plan #2: 3 tool domain mới nằm trong `TOOLS` (assertion set).
+- test-plan #3: `in_scope()` True cho câu hỏi FACE/FIGHT/CROWD/INTRUSION/
+  FIRE/WATER.
+- test-plan #4: `get_connection("vms_db")` → `ValueError`.
+- product-spec Guardrail / Agent & tool: hành vi validate tham số + scope
+  keywords được khóa bằng test offline (không cần Postgres).
+
+### Fail
+- Không tìm thấy lỗi trong phạm vi item này.
+
+### Missing (đúng Phase 6 item sau — không sửa ở đây)
+- Test GRANT/SELECT thật trên 3 DB mới.
+- Test `/ask` thật 5 domain + `eval/run.py` 30 case + Langfuse E2E.
+
+### Fixed
+- `src/guardrails.py` — comment STAT_KEYWORDS domain mới còn ghi
+  "tool/DB CHƯA code" dù Phase 3/5 đã xong — cập nhật cho khớp thực tế
+  (liên quan trực tiếp test `in_scope` domain mới).
+
+---
+
+## 2026-09-17 (Phase 6, item 1: test offline domain mới)
+
+### Added
+- `tests/test_offline.py` — 3 test Phase 6 (khớp `test-plan.md` domain
+  offline #1/#3/#4; #2 đã cover bởi `test_danh_sach_tool_dung_thiet_ke`):
+  - `test_count_anomaly_events_tu_choi_event_type_ngoai_whitelist` —
+    `LOI_BIA` → `error` rõ; monkeypatch `get_connection` để chắc không
+    mở DB; kèm `.invoke()` trên `@tool`.
+  - `test_in_scope_nhan_cau_hoi_domain_moi` — 6 câu hỏi mẫu 5 domain mới
+    (+ cháy/khói) → `in_scope() is True`.
+  - `test_get_connection_chan_dbname_ngoai_whitelist` — `vms_db` →
+    `ValueError`.
+- `specs/implementation-plan.md` Phase 6 item offline → `[x]`.
+- `specs/test-plan.md` — ghi rõ mục offline domain đã có trong
+  `test_offline.py`.
+
+### Notes / cách test (user chạy tay)
+```bash
+cd kcn_hungphu_agent
+pytest -q
+# Kỳ vọng: toàn bộ test cũ + 3 test mới pass (không cần DB/API key)
+pytest -q tests/test_offline.py -k "anomaly or in_scope_nhan or get_connection_chan"
+```
+
+---
+
+
+### Added / Changed
+- `src/agent/graph.py` — `AgentState["_trace_span"]`; `run_agent(...,
+  parent_span=)`; `_pack` bọc `trace_step(..., "dien_giai")` quanh
+  template + `build_answer` (output: answer rút gọn + tên tool).
+- `src/agent/react.py` — `agent_node` → span `chon_tool` (tool_calls /
+  offline); `_tools_node` thay `ToolNode` trần → span `chay_tool` (chỉ
+  tên tool, không dump rows).
+- `src/main.py` — `run_agent(..., parent_span=t.get("_span"))` để nối
+  cây span dưới observation `"ask"`.
+- `src/monitoring/tracing.py` — docstring: đã wire nested steps.
+- `specs/implementation-plan.md` Phase 5 item `trace_step` → `[x]` (Phase
+  5 v2 checklist hoàn tất).
+
+### Notes / cách test (user chạy tay)
+```bash
+cd kcn_hungphu_agent
+pytest -q   # monitoring tắt — nested no-op, kỳ vọng vẫn pass
+
+# Bật Langfuse + MONITORING_ENABLED=true, gọi /ask thật rồi mở UI:
+# http://localhost:3000 — observation "ask" phải có con:
+#   chon_tool → chay_tool → (chon_tool lại nếu cần) → dien_giai
+uvicorn src.main:app --reload
+curl -s -X POST http://127.0.0.1:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Hôm nay có bao nhiêu lượt xe vào?"}'
+```
+
+---
+
+## 2026-09-17 (Review Phase 5 item 4 vs product-spec.md/test-plan.md)
+
+Review lại đúng feature vừa làm (`trace_step` nested trên graph/ReAct)
+đối chiếu `specs/product-spec.md` và `specs/test-plan.md` mục Langfuse.
+
+### Pass
+- product-spec Observability / AC: tắt monitoring → nested span no-op
+  (`parent_span=None` / `trace_step(None, …)`); pytest `/ask` offline
+  không cần Langfuse.
+- test-plan Langfuse #2 (span con chọn tool + diễn giải): khi monitoring
+  bật, cây dưới `"ask"` gồm `chon_tool` → `chay_tool` → `dien_giai`
+  (có thể thêm `chon_tool` sau tool nếu ReAct quay lại agent).
+- test-plan #3 (secrets): span con chỉ ghi tên tool / args tóm tắt /
+  answer[:500] — không dump rows DB, không ghi API key/password.
+- `run_agent` vẫn gọi được không `parent_span` (eval/pytest trực tiếp).
+
+### Fail
+- Không tìm thấy lỗi trong phạm vi feature.
+
+### Missing (Phase 6 — không sửa ở đây)
+- test-plan #4 Langfuse down + verify E2E đầy đủ trên UI vẫn thuộc
+  Phase 6 checklist.
+- Offline pytest chưa assert tên span (cần mock Langfuse) — chấp nhận
+  test tay khi bật monitoring.
+
+### Fixed
+- `README.md` lộ trình: Phase 4/5 ghi đúng đã gắn tracing vào `/ask`+graph.
+
+---
+
+## 2026-09-17 (Review Phase 5 item 3 vs product-spec.md/test-plan.md)
+
+Review lại đúng feature vừa làm (`trace_answer` trên `ask()`) đối chiếu
+`specs/product-spec.md` và `specs/test-plan.md` mục Langfuse.
+
+### Pass
+- product-spec Observability / AC: tắt monitoring → app chạy y hệt (no-op);
+  bật thì mỗi `/ask` tạo 1 observation (input = câu hỏi, output =
+  answer/tool/row_count, có latency) — không đưa `OPENAI_API_KEYS`/
+  `DB_PASSWORD` vào metadata/output.
+- test-plan Langfuse #1: `MONITORING_ENABLED=false` → pytest `/ask` offline
+  không phụ thuộc Langfuse (cùng path no-op).
+- test-plan #3 (secrets): output chỉ `status`/`answer`/`tool`/`row_count`.
+- Injection vẫn 400 qua handler; out_of_scope vẫn 200 + câu từ chối — có
+  gắn `t["output"]` khi thành công / out_of_scope.
+
+### Fail
+- Không tìm thấy lỗi trong phạm vi wire `main.py`.
+
+### Missing (đúng item tiếp / Phase 6 — không sửa ở đây)
+- test-plan #2 "span con chọn tool + diễn giải" — cần `trace_step` trong
+  `graph.py` (item Phase 5 tiếp theo). Hiện chỉ có 1 span phẳng `"ask"`.
+- test-plan #4 Langfuse down → `/ask` không crash: hành vi giữ nguyên
+  (exception tracing được nuốt ở tầng SDK/flush theo thiết kế Phase 4);
+  latency tăng khi SDK retry vẫn là hạn chế đã ghi nhận lúc deploy
+  Langfuse — không thêm timeout mới ở item này.
+
+### Fixed
+- Không cần sửa code thêm sau review; chỉ ghi nhận Missing ở trên.
+- `README.md` lộ trình Phase 5: cập nhật đã wire `trace_answer` trên `/ask`.
+
+---
+
+## 2026-09-17 (Phase 5, item 3: wire `trace_answer` vào `src/main.py::ask`)
+
+### Added / Changed
+- `src/main.py::ask()` — bọc toàn bộ pipeline
+  `guardrail_input → agent → guardrail_output` trong
+  `with trace_answer("ask", question, metadata={"endpoint": "/ask"})`.
+  - Out-of-scope / success đều gán `t["output"]` (status + answer + tool +
+    row_count) — **không** ghi secrets hay toàn bộ rows DB.
+  - `GuardrailViolation` / `HTTPException` 503 vẫn raise ra ngoài; khi
+    monitoring bật, `trace_answer` đánh dấu ERROR rồi re-raise (handler
+    FastAPI giữ nguyên).
+  - `MONITORING_ENABLED=false` (mặc định): `trace_answer` no-op → hành vi
+    `/ask` y hệt trước.
+- `src/monitoring/tracing.py` — docstring cập nhật: đã wire `main.py`, còn
+  `trace_step` trong graph.
+- `specs/implementation-plan.md` Phase 5 item `trace_answer` → `[x]`.
+
+### Notes / cách test (user chạy tay)
+```bash
+cd kcn_hungphu_agent
+pytest -q   # MONITORING tắt mặc định — kỳ vọng vẫn pass toàn bộ
+
+# Monitoring tắt: /ask vẫn bình thường
+uvicorn src.main:app --reload
+curl -s -X POST http://127.0.0.1:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Thời tiết Hà Nội thế nào?"}'
+
+# Monitoring bật (Langfuse đang chạy, key trong .env khớp langfuse/.env):
+# MONITORING_ENABLED=true
+# LANGFUSE_PUBLIC_KEY=... LANGFUSE_SECRET_KEY=... LANGFUSE_HOST=http://localhost:3000
+curl -s -X POST http://127.0.0.1:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"Hôm nay có bao nhiêu lượt xe vào?"}'
+# → mở http://localhost:3000 xem observation name "ask" (input/output/latency)
+```
+
+---
+
+
+Review lại đúng feature vừa làm (`list_khu_vuc` mở rộng FACE/FIRE/ANOMALY)
+đối chiếu `specs/product-spec.md` và `specs/test-plan.md`.
+
+### Pass
+- product-spec "Agent & tool": có tool liệt kê camera/khu vực hợp lệ —
+  nay phủ đủ module của 8 domain (PLATE/ZONE/FACE/FIRE/ANOMALY), đúng mục
+  tiêu tránh agent đoán sai giá trị lọc.
+- test-plan offline #5 (danh sách tool): không đổi tên tool — vẫn
+  `list_khu_vuc`; thêm test shape wrap offline không cần DB.
+- Không thêm thư viện; vẫn 1 tool (không tách tool mới) — khớp wording
+  "list_khu_vuc (hoặc tool mới)" trong implementation-plan.
+
+### Fail
+- Không tìm thấy lỗi trong phạm vi feature.
+
+### Fixed (nhỏ, liên quan trực tiếp)
+- `eval/datasets/agent_stat/v2.yaml` case #006 `expected` còn ghi chỉ
+  "camera ITS + hàng rào" — cập nhật mô tả 5 nhóm cho khớp hành vi mới
+  (không đổi `must_include_tool`).
+- Docstring đầu `src/agent/tools.py` còn liệt kê bộ tool v1 — cập nhật.
+
+### Missing (đúng phạm vi Phase sau, không sửa ở đây)
+- Chưa có test offline bắt buộc gọi DB thật cho 3 DB mới qua
+  `list_khu_vuc` — thuộc Phase 6 "Test thật / guardrail an toàn".
+- Chưa wire Langfuse / system prompt nhắc tool domain mới — item Phase 5
+  tiếp theo.
+
+---
+
+## 2026-09-17 (Phase 5, item 2: mở rộng `list_khu_vuc` FACE/FIRE/ANOMALY)
+
+### Added
+- `src/db/queries.py::list_zones()` — ngoài `camera_its` (PLATE) và
+  `khu_vuc_hang_rao` (ZONE), thêm DISTINCT:
+  - `camera_face` từ `smart_face.smf_face_events` (`device_name`,
+    `area_name` — bảng FACE không có `camera_code`)
+  - `camera_fire` từ `firesmoke.fire_smoke_event` (`camera_code`,
+    `camera_name`)
+  - `camera_anomaly` từ `anomaly.anomaly_event` (`event_type`,
+    `camera_code`, `camera_name`, `zone_name`) — chỉ 4 `event_type`
+    thuộc sản phẩm; kèm `event_type` để agent không nhầm leo trèo /
+    ẩu đả / đám đông / mực nước
+- Áp dụng `_org_filter()` thống nhất cho cả 5 nhóm (PLATE/ZONE trước đây
+  không lọc org — giờ khớp 1-org MVP và các query đếm khác).
+- `src/agent/tools.py` — docstring `list_khu_vuc` mô tả 5 nhóm; `_wrap_dict`
+  trả đủ cột mới trong `QueryResult`.
+- `tests/test_offline.py::test_wrap_list_khu_vuc_gom_du_module` — shape
+  wrap không cần DB.
+
+### Changed
+- `specs/implementation-plan.md` Phase 5 item `list_khu_vuc` → `[x]`.
+
+### Notes / cách test (user chạy tay)
+```bash
+cd kcn_hungphu_agent
+pytest -q
+# Có .env DB thật:
+python -c "
+from src.agent.tools import list_khu_vuc
+import json
+r = json.loads(list_khu_vuc.invoke({}))
+print(r['columns'])
+print({c: len(r['rows'][0][i]) for i, c in enumerate(r['columns'])})
+"
+```
+- Kỳ vọng: columns gồm 5 key; `camera_fire` có thể `[]` (bảng rỗng);
+  `camera_face` / `camera_anomaly` có phần tử nếu org 106 đã có sự kiện.
+- UI: hỏi "Danh sách khu vực và camera hợp lệ hiện có là gì?" → agent gọi
+  `list_khu_vuc`, trả lời nhắc cả FACE/ANOMALY nếu có data.
+
+---
+
 
 Review lại đúng 1 feature vừa làm ("3 tool domain mới trong
 `src/agent/tools.py`") đối chiếu `specs/product-spec.md` và

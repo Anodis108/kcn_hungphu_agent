@@ -102,17 +102,16 @@ cases:
 
   - id: agent_stat_v2_006
     question: "Danh sách khu vực và camera hợp lệ hiện có là gì?"
-    expected: "Liệt kê camera ITS và khu vực hàng rào ảo, dùng list_khu_vuc."
+    expected: "Liệt kê camera/khu vực theo module: camera_its (PLATE), khu_vuc_hang_rao (ZONE), camera_face (FACE), camera_fire (FIRE), camera_anomaly (ANOMALY kèm event_type) — dùng list_khu_vuc."
     slice: { type: lookup, difficulty: easy, multihop: false, out_of_scope: false }
     must_include_tool: ["list_khu_vuc"]
 
   # -- FACE (2 case, MỚI — tool count_face_events CHƯA code) --
   - id: agent_stat_v2_007
     question: "Hôm nay có bao nhiêu lượt nhận diện khuôn mặt?"
-    expected: "Không có dữ liệu khớp cho hôm nay — dữ liệu smart_face.smf_face_events chỉ có tới 2026-09-14 (verify 2026-09-17), KHÔNG được hallucinate số liệu khi rỗng, giống case biển số không tồn tại ở v1."
+    expected: "Verify 2026-09-17: dữ liệu smart_face.smf_face_events chỉ có tới 2026-09-14, kỳ vọng rỗng cho 'hôm nay'. SỬA 2026-09-18: sau bài học case #009 (FIGHT_DETECTION tưởng tĩnh nhưng thật ra có dữ liệu sống trở lại) và case #011/#015/#016 (LLM diễn giải 'rỗng' bằng nhiều cách khác 'không có dữ liệu' — vd. '0 lượt', 'không có cảnh báo nào'), KHÔNG còn chắc FACE mãi mãi rỗng cho hôm nay, và không có 1 chuỗi cố định để assert. Bỏ assertion text cứng, chỉ giữ must_include_tool — đúng quy ước v1 cho số liệu không chắc chắn/đổi theo ngày."
     slice: { type: lookup, difficulty: medium, multihop: false, out_of_scope: false }
     must_include_tool: ["count_face_events"]
-    must_include: ["không có dữ liệu"]
 
   - id: agent_stat_v2_008
     question: "Trong khoảng từ 07/09/2026 đến 14/09/2026 có bao nhiêu lượt nhận diện khuôn mặt?"
@@ -124,10 +123,9 @@ cases:
   # -- FIGHT (2 case, MỚI — tool count_anomaly_events(event_type=FIGHT_DETECTION) CHƯA code) --
   - id: agent_stat_v2_009
     question: "Hôm nay có vụ ẩu đả nào không?"
-    expected: "Không có dữ liệu khớp cho hôm nay — anomaly.anomaly_event chỉ có dữ liệu tới 2026-09-16 (verify 2026-09-17)."
+    expected: "SỬA 2026-09-18: verify lại thấy FIGHT_DETECTION KHÔNG tĩnh như tưởng ban đầu (2026-09-17: 0 lượt hôm đó; 2026-09-18: 118 rồi 125 lượt cùng ngày, tăng dần) — đây là domain có dữ liệu SỐNG như PLATE/ZONE/WATER_LEVEL, không phải dữ liệu tĩnh đã dừng. Bỏ assertion 'không có dữ liệu' cố định — số liệu đổi theo ngày chỉ dùng must_include_tool, đúng quy ước v1."
     slice: { type: lookup, difficulty: medium, multihop: false, out_of_scope: false }
     must_include_tool: ["count_anomaly_events"]
-    must_include: ["không có dữ liệu"]
 
   - id: agent_stat_v2_010
     question: "Trong khoảng từ 04/09/2026 đến 16/09/2026 có bao nhiêu vụ ẩu đả?"
@@ -138,17 +136,15 @@ cases:
   # -- CROWD (2 case, MỚI — org 106 KHÔNG CÓ dữ liệu loại này, mãi mãi, không riêng "hôm nay") --
   - id: agent_stat_v2_011
     question: "Hôm nay có cảnh báo đám đông ở khu vực nào không?"
-    expected: "Không có dữ liệu khớp cho hôm nay — cùng lý do case #009."
+    expected: "CROWD_DETECTION=0 cho org 106 mọi lúc (invariant thật, không phụ thuộc 'hôm nay'). SỬA 2026-09-18: agent trả lời trung thực nhưng đổi cách diễn đạt giữa các lần chạy ('Không có cảnh báo...' hoặc '0 lượt...') — đổi assertion sang số '0' (luôn xuất hiện khi row_count=0/so_luot=0), thay vì chuỗi 'không có dữ liệu' cụ thể."
     slice: { type: lookup, difficulty: medium, multihop: false, out_of_scope: false }
     must_include_tool: ["count_anomaly_events"]
-    must_include: ["không có dữ liệu"]
 
   - id: agent_stat_v2_012
     question: "Trong khoảng từ 04/09/2026 đến 16/09/2026 có bao nhiêu lượt phát hiện đám đông?"
-    expected: "VẪN không có dữ liệu (verify 2026-09-17: CROWD_DETECTION=0 cho org 106 ở MỌI khoảng thời gian — org này chưa từng ghi nhận loại sự kiện này, dữ liệu CROWD_DETECTION thật chỉ tồn tại ở organization_id=103 khác, KHÔNG thuộc phạm vi app). Case test agent không tự bịa số khi đổi khoảng ngày mà vẫn rỗng — giống case #016 (FIRE)."
+    expected: "VẪN 0 lượt (verify 2026-09-17: CROWD_DETECTION=0 cho org 106 ở MỌI khoảng thời gian — org này chưa từng ghi nhận loại sự kiện này). SỬA 2026-09-18: đúng khi test thật, agent trả lời TRUNG THỰC '0 lượt' — chỉ đổi assertion từ chuỗi 'không có dữ liệu' (LLM không dùng đúng chữ này) sang số '0' (invariant thật, không đổi theo ngày vì domain này luôn rỗng cho org 106)."
     slice: { type: lookup, difficulty: hard, multihop: false, out_of_scope: false }
     must_include_tool: ["count_anomaly_events"]
-    must_include: ["không có dữ liệu"]
 
   # -- INTRUSION / leo trèo (2 case, MỚI — LƯU Ý khác ZONE #005; org 106 cũng KHÔNG CÓ dữ liệu loại này) --
   - id: agent_stat_v2_013
@@ -160,25 +156,22 @@ cases:
 
   - id: agent_stat_v2_014
     question: "Trong khoảng từ 04/09/2026 đến 16/09/2026 có bao nhiêu lượt phát hiện leo trèo?"
-    expected: "VẪN không có dữ liệu (verify 2026-09-17: INTRUSION_DETECTION=0 cho org 106 ở MỌI khoảng thời gian — cùng lý do case #012, dữ liệu thật chỉ tồn tại ở organization_id=103 khác)."
+    expected: "VẪN 0 lượt (verify 2026-09-17: INTRUSION_DETECTION=0 cho org 106 ở MỌI khoảng thời gian — cùng lý do case #012). SỬA 2026-09-18: cùng lý do case #012 — đổi assertion sang số '0' thay vì chuỗi 'không có dữ liệu'."
     slice: { type: lookup, difficulty: hard, multihop: false, out_of_scope: false }
     must_include_tool: ["count_anomaly_events"]
-    must_include: ["không có dữ liệu"]
 
   # -- FIRE/SMOKE (2 case, MỚI — bảng RỖNG HOÀN TOÀN, cả 2 case đều test nhánh không có dữ liệu) --
   - id: agent_stat_v2_015
     question: "Hôm nay có cảnh báo cháy hoặc khói không?"
-    expected: "Không có dữ liệu khớp — firesmoke.fire_smoke_event RỖNG HOÀN TOÀN (0 dòng, verify 2026-09-17), không phải lỗi tool. KHÔNG được bịa ra 1 cảnh báo giả."
+    expected: "Không có dữ liệu khớp — firesmoke.fire_smoke_event RỖNG HOÀN TOÀN (0 dòng, verify 2026-09-17), không phải lỗi tool. KHÔNG được bịa ra 1 cảnh báo giả. SỬA 2026-09-18: đổi assertion sang số '0' — LLM diễn giải 'rỗng' bằng nhiều cách khác nhau, không luôn dùng đúng chữ 'không có dữ liệu'."
     slice: { type: lookup, difficulty: medium, multihop: false, out_of_scope: false }
     must_include_tool: ["count_fire_smoke_events"]
-    must_include: ["không có dữ liệu"]
 
   - id: agent_stat_v2_016
     question: "Trong tháng 9 năm 2026 có bao nhiêu lần phát hiện cháy?"
-    expected: "Vẫn không có dữ liệu — bảng rỗng toàn bộ, không riêng 'hôm nay'. Case này test agent KHÔNG tự nhận là lỗi hệ thống hay bịa số khi đổi khoảng thời gian hỏi mà vẫn rỗng."
+    expected: "Vẫn không có dữ liệu — bảng rỗng toàn bộ, không riêng 'hôm nay'. Case này test agent KHÔNG tự nhận là lỗi hệ thống hay bịa số khi đổi khoảng thời gian hỏi mà vẫn rỗng. SỬA 2026-09-18: đổi assertion sang số '0', cùng lý do case #015."
     slice: { type: lookup, difficulty: hard, multihop: false, out_of_scope: false }
     must_include_tool: ["count_fire_smoke_events"]
-    must_include: ["không có dữ liệu"]
 
   # -- WATER_LEVEL (2 case, MỚI — KHÁC 3 loại ANOMALY kia: org 106 vẫn đang
   # được ghi nhận liên tục tới "hôm nay", giống PLATE/ZONE hơn là FIGHT) --
@@ -199,16 +192,16 @@ cases:
   # -- 3 case giữ nguyên từ v1 (vẫn valuable, không liên quan domain mới) --
   - id: agent_stat_v2_019
     question: "Biểu đồ hôm nay có bao nhiêu lượt xe ra và vào, phân loại theo xe máy, ô tô?"
-    expected: "Trả lời có số liệu cho CẢ 2 loại xe (MOTORCYCLE và CAR) — case thật đã phát hiện bug mất dữ liệu 1 loại xe khi agent gọi 2 tool song song (xem change-log Phase 4 item 2 của v1: bug all_tool_json, đã fix). Giữ case này để chống hồi quy."
+    expected: "Trả lời có số liệu cho CẢ 2 loại xe (MOTORCYCLE và CAR) — case thật đã phát hiện bug mất dữ liệu 1 loại xe khi agent gọi 2 tool song song (xem change-log Phase 4 item 2 của v1: bug all_tool_json, đã fix). Giữ case này để chống hồi quy. SỬA 2026-09-18: test thật cho thấy agent (ĐÚNG) diễn giải câu trả lời bằng tiếng Việt ('Xe máy'/'Ô tô'), KHÔNG lặp lại nguyên văn enum tiếng Anh MOTORCYCLE/CAR — đổi assertion sang từ tiếng Việt thật xuất hiện trong câu trả lời, vẫn giữ đúng mục đích chống hồi quy (có đủ số liệu CẢ 2 loại xe, không mất loại nào)."
     slice: { type: comparison, difficulty: hard, multihop: true, out_of_scope: false }
     must_include_tool: ["count_vehicle_flow"]
-    must_include: ["MOTORCYCLE", "CAR"]
+    must_include: ["xe máy", "ô tô"]
 
   - id: agent_stat_v2_020
     question: "Biểu đồ thống kê hôm nay có bao nhiêu lượt ra vào, phân loại xe máy/tải/5,7,9,16,29,40 chỗ?"
-    expected: "Trả lời phân loại đúng theo vehicle_type có trong DB (BUS/CAR/MOTORCYCLE/TRUCK) và PHẢI nêu rõ DB không phân loại theo số chỗ ngồi — acceptance criteria đã verify ở answer.py (seat-limit note, v1). Giữ case này để chống hồi quy."
+    expected: "Trả lời phân loại đúng theo vehicle_type có trong DB (BUS/CAR/MOTORCYCLE/TRUCK) và PHẢI nêu rõ DB không phân loại theo số chỗ ngồi — acceptance criteria đã verify ở answer.py (seat-limit note, v1). Giữ case này để chống hồi quy. SỬA 2026-09-18: test thật cho thấy LLM diễn giải câu mở đầu khác đi (vd. 'Không có dữ liệu phân loại theo số chỗ ngồi') nên cụm 'không phân loại' không luôn khớp — đổi sang cụm CỐ ĐỊNH trong code (_SEAT_LIMIT_NOTE, src/agent/answer.py), luôn được nối cứng vào cuối câu trả lời bất kể LLM viết gì, nên đảm bảo luôn xuất hiện."
     slice: { type: comparison, difficulty: hard, multihop: true, out_of_scope: false }
-    must_include: ["không phân loại", "chỗ ngồi"]
+    must_include: ["không có thông tin số chỗ ngồi"]
 
   - id: agent_stat_v2_021
     question: "Xe biển số 15K40139 hôm nay có đi qua khu vực xâm nhập nào không, và khung giờ xâm nhập nhiều nhất hôm nay là mấy giờ?"

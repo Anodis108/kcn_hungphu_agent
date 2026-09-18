@@ -33,9 +33,8 @@ class Settings(BaseSettings):
     db_password: str = Field(default="", alias="DB_PASSWORD")
     db_name_its: str = Field(default="its", alias="DB_NAME_ITS")
     db_name_fence: str = Field(default="virtual_fence", alias="DB_NAME_FENCE")
-    # 3 DB mới (Phase 2, implementation-plan.md) — role agent_readonly đã
-    # được GRANT SELECT trên cả 3 (xem specs/change-log.md 2026-09-17).
-    # CHƯA dùng ở src/db/connection.py (whitelist mở rộng thuộc Phase 3).
+    # 3 DB mới (Phase 2+) — role agent_readonly đã GRANT SELECT (xem
+    # specs/change-log.md). Whitelist nằm ở src/db/connection.py.
     db_name_face: str = Field(default="smart_face", alias="DB_NAME_FACE")
     db_name_fire: str = Field(default="firesmoke", alias="DB_NAME_FIRE")
     db_name_anomaly: str = Field(default="anomaly", alias="DB_NAME_ANOMALY")

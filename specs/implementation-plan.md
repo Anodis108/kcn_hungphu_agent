@@ -195,14 +195,16 @@ gắn tracing (Phase 4) vào đúng chỗ.
       docstring nêu RÕ whitelist `event_type` hợp lệ cho
       `count_anomaly_events` (LLM đọc docstring để không bịa tham số).
       (Xem `specs/change-log.md` 2026-09-17.)
-- [ ] `list_khu_vuc` (hoặc tool mới) — mở rộng liệt kê thêm camera có
+- [x] `list_khu_vuc` (hoặc tool mới) — mở rộng liệt kê thêm camera có
       `ai_modules` FACE/FIRE/ANOMALY.
-- [ ] `src/main.py` (`ask()`) — bọc toàn bộ pipeline
+      (Xem `specs/change-log.md` 2026-09-17.)
+- [x] `src/main.py` (`ask()`) — bọc toàn bộ pipeline
       `guardrail_input → agent → guardrail_output` trong `trace_answer()`
-      (từ Phase 4).
-- [ ] `src/agent/graph.py` — wire `trace_step()` vào các bước con (chọn
+      (từ Phase 4). (Xem `specs/change-log.md` 2026-09-17.)
+- [x] `src/agent/graph.py` — wire `trace_step()` vào các bước con (chọn
       tool, chạy tool, `answer.py` diễn giải), dùng `t["_span"]` làm
-      parent span.
+      parent span. (Xem `specs/change-log.md` 2026-09-17 — kèm
+      `src/agent/react.py` vì node agent/tools nằm ở helper ReAct.)
 
 ---
 
@@ -220,24 +222,33 @@ gắn tracing (Phase 4) vào đúng chỗ.
 - [x] Test thật (5 câu hỏi mẫu qua endpoint đầy đủ) — xem `test-plan.md`
 
 ### v2 — chưa code
-- [ ] Test offline domain mới: `count_anomaly_events(event_type=...)`
+- [x] Test offline domain mới: `count_anomaly_events(event_type=...)`
       ngoài whitelist → lỗi rõ ràng, không query DB; `in_scope()` nhận
       đúng câu hỏi domain mới; `get_connection()` chặn `dbname` ngoài 5 DB
-      hợp lệ.
-- [ ] Test guardrail an toàn cho 3 DB mới: SELECT chạy được, DELETE/UPDATE
+      hợp lệ. (Xem `specs/change-log.md` 2026-09-17 —
+      `tests/test_offline.py`.)
+- [x] Test guardrail an toàn cho 3 DB mới: SELECT chạy được, DELETE/UPDATE
       bị từ chối — lặp lại thủ tục v1 cho `smart_face`/`firesmoke`/
-      `anomaly`.
-- [ ] Test thật: tối thiểu 1 câu hỏi mẫu / domain mới (5 domain), verify
+      `anomaly`. (Xem `specs/change-log.md` 2026-09-18 —
+      `tests/test_db_guardrail_new_dbs.py`: lớp app
+      `ReadOnlySqlTransaction` + lớp GRANT `InsufficientPrivilege`.)
+- [x] Test thật: tối thiểu 1 câu hỏi mẫu / domain mới (5 domain), verify
       số liệu thật khớp `rows` — đặc biệt phân biệt đúng "leo trèo" vs
-      "vùng cấm" (2 bảng khác nhau, xem lưu ý Phase 2).
-- [ ] Chạy `eval/run.py` full 30 case (`eval/datasets/agent_stat/v2.yaml`)
+      "vùng cấm" (2 bảng khác nhau, xem lưu ý Phase 2). (Xem
+      `specs/change-log.md` 2026-09-18 — cần fix trước 1 bug dependency
+      `openai`/`httpx2` chặn mọi lời gọi LLM thật.)
+- [x] Chạy `eval/run.py` full 30 case (`eval/datasets/agent_stat/v2.yaml`)
       — xác nhận tỷ lệ pass/fail theo slice; 3 case `out_of_scope` + 3 case
       `injection` PHẢI vẫn pass nguyên (tín hiệu regression nếu mở rộng
-      `STAT_KEYWORDS` sai cách).
-- [ ] Test Langfuse: `MONITORING_ENABLED=false` → `pytest` chạy y hệt
+      `STAT_KEYWORDS` sai cách). (Xem `specs/change-log.md` 2026-09-18 —
+      30/30 pass, ổn định qua 2 lần chạy; sửa 8 case dataset dùng
+      assertion text quá cứng nhắc.)
+- [x] Test Langfuse: `MONITORING_ENABLED=false` → `pytest` chạy y hệt
       trước; bật `true` + gọi `/ask` thật → trace xuất hiện trong Langfuse
       UI, không lộ `OPENAI_API_KEYS`/DB password; Langfuse service down →
-      `/ask` vẫn trả lời bình thường (không crash vì lỗi tracing).
+      `/ask` vẫn trả lời bình thường (không crash vì lỗi tracing). (Xem
+      `specs/change-log.md` 2026-09-18 — verify tận ClickHouse, phát hiện
+      độ trễ khi Langfuse down cao hơn ước tính ban đầu, ~8.3s.)
 
 ---
 
@@ -248,11 +259,13 @@ gắn tracing (Phase 4) vào đúng chỗ.
       URL local, troubleshooting
 
 ### v2 — chưa code
-- [ ] `README.md` — cập nhật bảng biến môi trường: 3 DB mới
+- [x] `README.md` — cập nhật bảng biến môi trường: 3 DB mới
       (`DB_NAME_FACE`/`DB_NAME_FIRE`/`DB_NAME_ANOMALY`) + nhóm biến
-      Langfuse (`MONITORING_ENABLED`, `LANGFUSE_*`).
-- [ ] `README.md` mục "Tạo DB role read-only" — thêm ví dụ SQL cho 3 DB
-      mới (cùng pattern, chỉ đổi tên DB).
+      Langfuse (`MONITORING_ENABLED`, `LANGFUSE_*`). (Xem
+      `specs/change-log.md` 2026-09-18.)
+- [x] `README.md` mục "Tạo DB role read-only" — thêm ví dụ SQL cho 3 DB
+      mới (cùng pattern, chỉ đổi tên DB). (Xem `specs/change-log.md`
+      2026-09-18.)
 
 ---
 
@@ -264,11 +277,14 @@ gắn tracing (Phase 4) vào đúng chỗ.
       chung 1 cổng
 
 ### v2 — chưa code
-- [ ] Demo Langfuse: mở UI Langfuse cục bộ, xem trace của 1 lượt `/ask`
-      thật (input/output/latency/span con).
-- [ ] Demo golden dataset: chạy `eval/run.py`, trình bày báo cáo pass/fail
+- [x] Demo Langfuse: mở UI Langfuse cục bộ, xem trace của 1 lượt `/ask`
+      thật (input/output/latency/span con). (Xem `specs/change-log.md`
+      2026-09-18 — link trace thật + hướng dẫn đăng nhập cho user tự mở.)
+- [x] Demo golden dataset: chạy `eval/run.py`, trình bày báo cáo pass/fail
       theo domain — dùng làm bằng chứng "agent trả lời đúng cả 8 domain",
-      không chỉ demo tay từng câu hỏi.
+      không chỉ demo tay từng câu hỏi. (Xem `specs/change-log.md`
+      2026-09-18 — phát hiện + sửa 1 bug thật: nhầm tool mực nước ↔
+      cháy/khói trong lúc demo.)
 
 ---
 

@@ -310,18 +310,71 @@ def count_anomaly_events(
 
 
 def list_zones() -> dict:
-    """Liệt kê camera/khu vực hợp lệ — tránh agent đoán sai giá trị lọc."""
-    its_sql = "SELECT DISTINCT camera_code, camera_name FROM plate_event ORDER BY 1;"
-    fence_sql = "SELECT DISTINCT zone_name_cached, camera_name FROM zone_event ORDER BY 1;"
+    """Liệt kê camera/khu vực hợp lệ theo module AI — tránh agent đoán sai
+    giá trị lọc. PLATE/ZONE giữ shape cũ; FACE/FIRE/ANOMALY lấy DISTINCT từ
+    bảng sự kiện tương ứng (không có bảng camera master riêng).
+
+    FACE dùng device_name/area_name (smf_face_events không có camera_code).
+    ANOMALY kèm event_type để phân biệt ẩu đả/đám đông/leo trèo/mực nước."""
+    org_sql, org_params = _org_filter()
+
+    its_sql = f"""
+        SELECT DISTINCT camera_code, camera_name
+        FROM plate_event
+        WHERE {org_sql}
+        ORDER BY 1;
+    """
+    fence_sql = f"""
+        SELECT DISTINCT zone_name_cached, camera_name
+        FROM zone_event
+        WHERE {org_sql}
+        ORDER BY 1;
+    """
+    face_sql = f"""
+        SELECT DISTINCT device_name, area_name
+        FROM smf_face_events
+        WHERE {org_sql}
+        ORDER BY 1;
+    """
+    fire_sql = f"""
+        SELECT DISTINCT camera_code, camera_name
+        FROM fire_smoke_event
+        WHERE {org_sql}
+        ORDER BY 1;
+    """
+    anomaly_sql = f"""
+        SELECT DISTINCT event_type, camera_code, camera_name, zone_name
+        FROM anomaly_event
+        WHERE {org_sql}
+          AND event_type IN (
+              'FIGHT_DETECTION', 'CROWD_DETECTION',
+              'INTRUSION_DETECTION', 'WATER_LEVEL_DETECTION'
+          )
+        ORDER BY 1, 2;
+    """
 
     with get_connection(settings.db_name_its) as conn, conn.cursor() as cur:
-        cur.execute(its_sql)
+        cur.execute(its_sql, org_params)
         its_rows = cur.fetchall()
     with get_connection(settings.db_name_fence) as conn, conn.cursor() as cur:
-        cur.execute(fence_sql)
+        cur.execute(fence_sql, org_params)
         fence_rows = cur.fetchall()
+    with get_connection(settings.db_name_face) as conn, conn.cursor() as cur:
+        cur.execute(face_sql, org_params)
+        face_rows = cur.fetchall()
+    with get_connection(settings.db_name_fire) as conn, conn.cursor() as cur:
+        cur.execute(fire_sql, org_params)
+        fire_rows = cur.fetchall()
+    with get_connection(settings.db_name_anomaly) as conn, conn.cursor() as cur:
+        cur.execute(anomaly_sql, org_params)
+        anomaly_rows = cur.fetchall()
 
     return {
         "camera_its": [list(r) for r in its_rows],
         "khu_vuc_hang_rao": [list(r) for r in fence_rows],
+        "camera_face": [[str(v) if v is not None else "" for v in r] for r in face_rows],
+        "camera_fire": [[str(v) if v is not None else "" for v in r] for r in fire_rows],
+        "camera_anomaly": [
+            [str(v) if v is not None else "" for v in r] for r in anomaly_rows
+        ],
     }

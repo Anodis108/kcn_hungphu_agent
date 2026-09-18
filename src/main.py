@@ -19,6 +19,8 @@ from pydantic import BaseModel, Field
 from src.agent.graph import Agent_Input, run_agent
 from src.config import settings
 from src.guardrails import GuardrailViolation, OUT_OF_SCOPE_REPLY, check_input, check_output, in_scope, redact_pii
+from src.monitoring.tracing import trace_answer
+
 
 app = FastAPI(
     title="agent_ATIN",
@@ -46,36 +48,47 @@ class AskResponse(BaseModel):
 
 @app.post("/ask", response_model=AskResponse, tags=["agent"])
 def ask(req: AskRequest) -> AskResponse:
-    # guardrail_input: injection/toxic raise (nguy hại thật, chặn cứng,
-    # không gọi agent/DB) — xử lý ở exception handler bên dưới. Ngoài phạm
-    # vi KHÔNG raise, trả lời lịch sự luôn, cũng không gọi agent/DB.
-    check_input(req.question)
-    if not in_scope(req.question):
-        return AskResponse(question=req.question, answer=OUT_OF_SCOPE_REPLY)
+    # Toàn bộ pipeline trong 1 span Langfuse (no-op nếu MONITORING_ENABLED=false).
+    # Output chỉ gắn answer/tool/row_count — không ghi secrets / raw DB rows.
+    with trace_answer("ask", req.question, metadata={"endpoint": "/ask"}) as t:
+        # guardrail_input: injection/toxic raise (nguy hại thật, chặn cứng,
+        # không gọi agent/DB) — xử lý ở exception handler bên dưới. Ngoài phạm
+        # vi KHÔNG raise, trả lời lịch sự luôn, cũng không gọi agent/DB.
+        check_input(req.question)
+        if not in_scope(req.question):
+            t["output"] = {"status": "out_of_scope", "answer": OUT_OF_SCOPE_REPLY}
+            return AskResponse(question=req.question, answer=OUT_OF_SCOPE_REPLY)
 
-    question = redact_pii(req.question)
-    try:
-        out = run_agent(Agent_Input(question=question))
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Không trả lời được: {exc}") from exc
+        question = redact_pii(req.question)
+        try:
+            out = run_agent(Agent_Input(question=question), parent_span=t.get("_span"))
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail=f"Không trả lời được: {exc}") from exc
 
-    # guardrail_output: đối chiếu số liệu với evidence thật (câu hỏi + dữ
-    # liệu tool trả về), redact PII, giới hạn độ dài — không raise, chỉ
-    # sửa/thay answer khi cần.
-    query = out.query
-    evidence = [question] + (
-        [f"{c}={v}" for row in query.rows for c, v in zip(query.columns, row)] if query else []
-    )
-    result = check_output(out.answer, evidence)
+        # guardrail_output: đối chiếu số liệu với evidence thật (câu hỏi + dữ
+        # liệu tool trả về), redact PII, giới hạn độ dài — không raise, chỉ
+        # sửa/thay answer khi cần.
+        query = out.query
+        evidence = [question] + (
+            [f"{c}={v}" for row in query.rows for c, v in zip(query.columns, row)] if query else []
+        )
+        result = check_output(out.answer, evidence)
 
-    return AskResponse(
-        question=out.question,
-        answer=result.answer,
-        tool=query.tool if query else "",
-        columns=query.columns if query else [],
-        rows=query.rows if query else [],
-        row_count=query.row_count if query else 0,
-    )
+        response = AskResponse(
+            question=out.question,
+            answer=result.answer,
+            tool=query.tool if query else "",
+            columns=query.columns if query else [],
+            rows=query.rows if query else [],
+            row_count=query.row_count if query else 0,
+        )
+        t["output"] = {
+            "status": "ok",
+            "answer": response.answer,
+            "tool": response.tool,
+            "row_count": response.row_count,
+        }
+        return response
 
 
 @app.exception_handler(GuardrailViolation)

@@ -50,9 +50,9 @@ Dùng đúng 5 câu hỏi mẫu trong tài liệu gốc:
 
 ---
 
-## Test domain sự kiện VMS mới (Phase 2/3/5/6 trong implementation-plan.md — chưa code, ghi kế hoạch trước)
+## Test domain sự kiện VMS mới (Phase 2/3/5/6 trong implementation-plan.md)
 
-### Test offline (không cần Postgres/API key thật)
+### Test offline (không cần Postgres/API key thật) — đã có trong `tests/test_offline.py`
 | # | Test | Kỳ vọng |
 |---|---|---|
 | 1 | `count_anomaly_events(event_type="LOI_BIA")` (event_type ngoài whitelist) | Trả `error` rõ ràng, không query DB — giống cách `run_sql_readonly` validate bảng ở v1 |
@@ -61,21 +61,20 @@ Dùng đúng 5 câu hỏi mẫu trong tài liệu gốc:
 | 4 | `get_connection()` với `dbname` ngoài 5 DB hợp lệ (2 cũ + 3 mới) | Raise `ValueError` ngay, không mở connection — giống test guardrail DB ở v1 |
 
 ### Test guardrail an toàn (2 lớp — KHÁC cơ chế nhau, đừng lẫn lộn)
-- **Lớp Postgres/GRANT** (verify được NGAY sau khi tạo role — không cần
-  đợi Phase 3): connect trực tiếp bằng `psycopg2.connect()` (KHÔNG qua
-  `get_connection()`, vì whitelist DB trong code chưa có 3 DB mới) tới
-  từng DB `smart_face`/`firesmoke`/`anomaly` bằng `agent_readonly` — verify
-  SELECT chạy được, verify DELETE/UPDATE bị từ chối với
-  **`InsufficientPrivilege`** (KHÔNG phải `ReadOnlySqlTransaction` — lỗi
-  đó chỉ xảy ra qua `conn.set_session(readonly=True)` trong
-  `get_connection()`, tầng app chưa hỗ trợ 3 DB này).
-- **Lớp app/session-readonly** (chỉ verify được SAU Phase 3, khi
-  `get_connection()` đã mở whitelist cho 3 DB mới): gọi qua
-  `get_connection()` thật rồi thử DELETE/UPDATE — lúc đó mới đúng kỳ vọng
-  `ReadOnlySqlTransaction`, giống pattern v1 (`its`/`virtual_fence`).
-- Lớp code (`get_connection()`) chặn `dbname` lạ NGAY, không phụ thuộc
-  hoàn toàn vào quyền Postgres — verify lại sau khi mở rộng whitelist
-  (đảm bảo mở rộng đúng 3 DB mới, không vô tình mở rộng quá tay).
+
+Đã có pytest tái chạy được: `tests/test_db_guardrail_new_dbs.py`
+(skip nếu chưa có `.env` DB).
+
+- **Lớp Postgres/GRANT**: connect trực tiếp bằng `psycopg2.connect()`
+  (KHÔNG qua `get_connection()`, không `set_session(readonly=True)`) tới
+  từng DB `smart_face`/`firesmoke`/`anomaly` bằng role read-only — SELECT
+  chạy được; DELETE bị từ chối với **`InsufficientPrivilege`**.
+- **Lớp app/session-readonly**: gọi qua `get_connection()` rồi thử
+  DELETE/UPDATE — kỳ vọng **`ReadOnlySqlTransaction`** (do
+  `conn.set_session(readonly=True)`), giống pattern v1
+  (`its`/`virtual_fence`).
+- Lớp code (`get_connection()`) chặn `dbname` lạ NGAY — đã cover offline
+  trong `tests/test_offline.py::test_get_connection_chan_dbname_ngoai_whitelist`.
 
 ### Test thật (chạy tay, cần `.env` đủ 5 DB + role read-only)
 Tối thiểu 1 câu hỏi mẫu / domain mới (8 domain − 3 đã test ở v1 = 5 domain

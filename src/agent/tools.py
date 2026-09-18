@@ -1,6 +1,7 @@
-"""Tools Agent — function-calling tham số hoá: 4 tool nghiệp vụ chính
-(get_db_schema, list_khu_vuc, count_vehicle_flow, trace_plate,
-zone_intrusion_by_hour) + 1 tool SQL dự phòng.
+"""Tools Agent — function-calling tham số hoá: get_db_schema, list_khu_vuc
+(PLATE/ZONE/FACE/FIRE/ANOMALY), count_vehicle_flow, trace_plate,
+zone_intrusion_by_hour, count_face_events, count_fire_smoke_events,
+count_anomaly_events + 1 tool SQL dự phòng.
 
 Model CHỌN tool + điền tham số (ngày, loại xe, khu vực, biển số...) — KHÔNG
 tự sinh SQL cho câu hỏi khớp tool. An toàn + chính xác hơn Text-to-SQL tự do
@@ -37,15 +38,25 @@ def _not_configured(tool_name: str) -> str:
     return QueryResult(tool=tool_name, error="Chưa cấu hình DB thật (DB_HOST) trong .env.").model_dump_json()
 
 
+_LIST_ZONES_KEYS = (
+    "camera_its",
+    "khu_vuc_hang_rao",
+    "camera_face",
+    "camera_fire",
+    "camera_anomaly",
+)
+
+
 def _wrap_dict(tool_name: str, data: dict) -> str:
     """Chuẩn hoá dict trả về từ src/db/queries.py thành QueryResult JSON."""
     if "error" in data:
         return QueryResult(tool=tool_name, error=data["error"]).model_dump_json()
-    if "camera_its" in data:  # list_zones — không phải dạng columns/rows
+    if "camera_its" in data:  # list_zones — 1 hàng, mỗi cột 1 nhóm module
+        columns = [k for k in _LIST_ZONES_KEYS if k in data]
         return QueryResult(
             tool=tool_name,
-            columns=["camera_its", "khu_vuc_hang_rao"],
-            rows=[[data["camera_its"], data["khu_vuc_hang_rao"]]],
+            columns=columns,
+            rows=[[data.get(k, []) for k in columns]],
             row_count=1,
         ).model_dump_json()
     return QueryResult(
@@ -73,7 +84,15 @@ def get_db_schema() -> str:
 
 @tool
 def list_khu_vuc() -> str:
-    """Liệt kê tên camera/khu vực hợp lệ — tránh đoán sai giá trị lọc trước khi gọi tool khác."""
+    """Liệt kê camera/khu vực hợp lệ theo module AI — tránh đoán sai giá trị
+    lọc trước khi gọi tool khác. Trả về các nhóm:
+      - camera_its (PLATE / giám sát phương tiện)
+      - khu_vuc_hang_rao (ZONE / vùng cấm)
+      - camera_face (FACE / nhận diện khuôn mặt — device_name, area_name)
+      - camera_fire (FIRE / cháy khói)
+      - camera_anomaly (ANOMALY — kèm event_type: FIGHT_DETECTION /
+        CROWD_DETECTION / INTRUSION_DETECTION / WATER_LEVEL_DETECTION)
+    Danh sách rỗng ở 1 nhóm = chưa có sự kiện ghi nhận (không phải lỗi)."""
     if not settings.db_configured:
         return _not_configured("list_khu_vuc")
     from src.db.queries import list_zones
@@ -153,7 +172,12 @@ def count_face_events(
 
 @tool
 def count_fire_smoke_events(date_from: str, date_to: str, entity_type: str = "") -> str:
-    """Đếm cảnh báo cháy/khói trong khoảng thời gian [date_from, date_to).
+    """CHỈ dùng cho câu hỏi về CHÁY hoặc KHÓI. Nếu câu hỏi nhắc "mực nước"
+    (kể cả kèm chữ "cảnh báo"/"ngưỡng cảnh báo"), KHÔNG được dùng tool này —
+    dùng count_anomaly_events(event_type="WATER_LEVEL_DETECTION") thay
+    thế, vì mực nước và cháy/khói là 2 nguồn dữ liệu HOÀN TOÀN KHÁC NHAU.
+
+    Đếm cảnh báo cháy/khói trong khoảng thời gian [date_from, date_to).
     entity_type tuỳ chọn, chỉ nhận FIRE (cháy) hoặc SMOKE (khói) — để trống
     để lấy cả 2. date_from/date_to định dạng 'YYYY-MM-DD HH:MM:SS'.
     LƯU Ý: nguồn dữ liệu này hiện CHƯA có bất kỳ cảnh báo nào được ghi nhận
@@ -182,7 +206,9 @@ def count_anomaly_events(
       - "INTRUSION_DETECTION"  — leo trèo (KHÁC "vùng cấm"/xâm nhập hàng
         rào ảo — câu hỏi về vùng cấm/hàng rào ảo phải dùng
         zone_intrusion_by_hour, KHÔNG dùng tool này)
-      - "WATER_LEVEL_DETECTION" — mực nước vượt ngưỡng cảnh báo
+      - "WATER_LEVEL_DETECTION" — mực nước vượt ngưỡng cảnh báo (KHÔNG
+        dùng count_fire_smoke_events cho câu hỏi mực nước dù cũng có chữ
+        "cảnh báo" — 2 tool khác nguồn dữ liệu hoàn toàn)
     Để so sánh nhiều loại sự kiện, gọi tool này NHIỀU LẦN (mỗi lần 1
     event_type) rồi tự tổng hợp — KHÔNG được gộp nhiều event_type vào 1
     lần gọi. group_by tuỳ chọn, 1+ cột trong {severity, zone_name}, để

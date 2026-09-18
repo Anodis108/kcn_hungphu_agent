@@ -1,5 +1,7 @@
 """Test offline — không cần API key/DB thật (chạy được ở mọi máy dev/CI).
-Khớp bảng "Test offline" trong specs/test-plan.md, 5 case theo đúng thứ tự.
+
+Khớp bảng "Test offline" v1 + "Test domain sự kiện VMS mới / Test offline"
+trong specs/test-plan.md.
 """
 
 from __future__ import annotations
@@ -10,7 +12,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.agent.graph import Agent_Input, run_agent
-from src.agent.tools import TOOLS, run_sql_readonly
+from src.agent.tools import TOOLS, count_anomaly_events, run_sql_readonly
+from src.db.connection import get_connection
+from src.db.queries import count_anomaly_events as query_count_anomaly_events
 from src.guardrails import GuardrailViolation, check_input, in_scope
 from src.main import app
 
@@ -70,10 +74,8 @@ def test_tool_sql_chan_cau_lenh_ghi():
 
 
 def test_danh_sach_tool_dung_thiet_ke():
-    """#5: Danh sách tool đúng như thiết kế (đủ tool cần, không thiếu) —
-    khớp specs/product-spec.md mục "Agent & tool". Đã mở rộng ở Phase 5
-    (v2) với 3 tool domain mới (FACE/FIRE/ANOMALY) — xem
-    specs/change-log.md 2026-09-17."""
+    """#5 (v1) + domain offline #2: danh sách tool đúng thiết kế — gồm 3 tool
+    domain mới (FACE/FIRE/ANOMALY)."""
     tool_names = {t.name for t in TOOLS}
     assert tool_names == {
         "get_db_schema",
@@ -86,3 +88,91 @@ def test_danh_sach_tool_dung_thiet_ke():
         "count_anomaly_events",
         "run_sql_readonly",
     }
+
+
+def test_wrap_list_khu_vuc_gom_du_module():
+    """list_khu_vuc wrap đủ 5 nhóm module (PLATE/ZONE/FACE/FIRE/ANOMALY) —
+    không cần DB thật; chỉ kiểm shape QueryResult sau _wrap_dict."""
+    from src.agent.tools import _wrap_dict
+
+    raw = _wrap_dict(
+        "list_khu_vuc",
+        {
+            "camera_its": [["CAM1", "Cổng A"]],
+            "khu_vuc_hang_rao": [["POLY_1", "Cam hàng rào"]],
+            "camera_face": [["Device X", "Khu văn phòng"]],
+            "camera_fire": [],
+            "camera_anomaly": [["FIGHT_DETECTION", "CAM_F1", "Cam ẩu đả", ""]],
+        },
+    )
+    result = json.loads(raw)
+    assert result["error"] == ""
+    assert result["columns"] == [
+        "camera_its",
+        "khu_vuc_hang_rao",
+        "camera_face",
+        "camera_fire",
+        "camera_anomaly",
+    ]
+    assert result["row_count"] == 1
+    assert result["rows"][0][2] == [["Device X", "Khu văn phòng"]]
+    assert result["rows"][0][3] == []
+
+
+# ── Phase 6 — Test offline domain mới (test-plan.md) ───────────────────────
+
+
+def test_count_anomaly_events_tu_choi_event_type_ngoai_whitelist(monkeypatch):
+    """Domain offline #1: event_type ngoài whitelist → error rõ ràng, KHÔNG
+    mở connection DB (monkeypatch get_connection sẽ fail nếu bị gọi)."""
+
+    def _boom(*_a, **_k):
+        raise AssertionError("không được mở DB khi event_type ngoài whitelist")
+
+    monkeypatch.setattr("src.db.queries.get_connection", _boom)
+
+    data = query_count_anomaly_events(
+        "2026-09-01 00:00:00",
+        "2026-09-02 00:00:00",
+        "LOI_BIA",
+    )
+    assert data.get("error"), data
+    assert "event_type" in data["error"]
+    assert "LOI_BIA" in data["error"]
+
+    # Cùng validate qua @tool (LangChain). Tool check db_configured trước:
+    # chưa cấu hình → lỗi cấu hình; đã cấu hình → query whitelist (không DB).
+    raw = count_anomaly_events.invoke(
+        {
+            "date_from": "2026-09-01 00:00:00",
+            "date_to": "2026-09-02 00:00:00",
+            "event_type": "LOI_BIA",
+        }
+    )
+    result = json.loads(raw)
+    assert result["error"]
+    from src.config import settings
+
+    if settings.db_configured:
+        assert "event_type" in result["error"]
+        assert "LOI_BIA" in result["error"]
+
+
+def test_in_scope_nhan_cau_hoi_domain_moi():
+    """Domain offline #3: STAT_KEYWORDS đủ cho 5 domain mới — không từ chối oan."""
+    for question in [
+        "Hôm nay có bao nhiêu lượt nhận diện khuôn mặt?",
+        "Hôm nay có vụ ẩu đả nào không?",
+        "Hôm nay có cảnh báo đám đông ở khu vực nào không?",
+        "Hôm nay có phát hiện leo trèo không?",
+        "Hôm nay có cảnh báo cháy hoặc khói không?",
+        "Mực nước hôm nay có vượt ngưỡng cảnh báo không?",
+    ]:
+        assert in_scope(question) is True, question
+
+
+def test_get_connection_chan_dbname_ngoai_whitelist():
+    """Domain offline #4: dbname lạ → ValueError ngay, không mở connection."""
+    with pytest.raises(ValueError, match="không hợp lệ"):
+        with get_connection("vms_db"):
+            pass

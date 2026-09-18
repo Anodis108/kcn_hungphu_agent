@@ -7,8 +7,9 @@ KHÔNG bọc qua LangChain — dùng langfuse SDK trực tiếp.
 
 Mặc định tắt (`MONITORING_ENABLED=false`) nên khi chưa điền `LANGFUSE_*`
 trong `.env`, toàn bộ hàm ở đây là no-op — không ai bắt buộc phải cài/kích
-hoạt Langfuse để chạy phần còn lại của codebase. Chưa wire vào
-`src/main.py`/`src/agent/graph.py` — đó là item kế tiếp (Phase 5).
+hoạt Langfuse để chạy phần còn lại của codebase. `src/main.py::ask()` đã
+bọc qua `trace_answer()`; `src/agent/graph.py` / `react.py` tạo nested
+`chon_tool` / `chay_tool` / `dien_giai` qua `trace_step` khi có parent span.
 """
 
 from __future__ import annotations

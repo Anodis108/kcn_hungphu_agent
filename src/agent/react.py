@@ -3,6 +3,9 @@
 
 Offline (không API key / pytest): giả 1 tool_call (`offline_call`) thay vì
 gọi OpenAI thật — test/CI không phụ thuộc network.
+
+Observability (Phase 5): agent/tools đọc `state["_trace_span"]` (span cha từ
+`trace_answer` ở main) và tạo nested `trace_step` — no-op khi span là None.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from src.llm import invoke_with_tools, use_offline_tools
+from src.monitoring.tracing import trace_step
 
 
 def fresh_user(text: str) -> dict:
@@ -33,32 +37,49 @@ def _is_tool_result(msg) -> bool:
     return bool(getattr(msg, "tool_call_id", None) or getattr(msg, "type", None) == "tool")
 
 
+def _tool_call_summary(tool_calls: list) -> list[dict]:
+    """Tóm tắt tool_calls cho Langfuse — tên + args, không dump message dài."""
+    out: list[dict] = []
+    for c in tool_calls or []:
+        if isinstance(c, dict):
+            out.append({"name": c.get("name"), "args": c.get("args")})
+        else:
+            out.append({"name": getattr(c, "name", None), "args": getattr(c, "args", None)})
+    return out
+
+
 def agent_node(state: dict, *, tools: list, system_prompt, offline_call) -> dict:
     from langchain_core.messages import AIMessage
 
-    last = (state.get("messages") or [None])[-1]
-    if use_offline_tools():
-        if _is_tool_result(last):
-            return {"messages": [AIMessage(content="ok")]}
-        name, args = offline_call(state)
-        return {
-            "messages": [
-                AIMessage(
-                    content="",
-                    tool_calls=[{"name": name, "args": args, "id": "offline-1", "type": "tool_call"}],
-                )
-            ]
-        }
+    span = state.get("_trace_span")
+    with trace_step(span, "chon_tool", input=state.get("question") or "") as t:
+        last = (state.get("messages") or [None])[-1]
+        if use_offline_tools():
+            if _is_tool_result(last):
+                t["output"] = {"offline": True, "phase": "after_tool"}
+                return {"messages": [AIMessage(content="ok")]}
+            name, args = offline_call(state)
+            t["output"] = {"offline": True, "tool_calls": [{"name": name, "args": args}]}
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[{"name": name, "args": args, "id": "offline-1", "type": "tool_call"}],
+                    )
+                ]
+            }
 
-    # system_prompt có thể là string tĩnh hoặc callable (đánh giá lại mỗi lượt —
-    # cần khi prompt tiêm giờ hiện tại, xem src/agent/graph.py).
-    prompt_text = system_prompt() if callable(system_prompt) else system_prompt
-    messages = [{"role": "system", "content": prompt_text}] + list(state.get("messages") or [])
-    try:
-        response = invoke_with_tools(messages, tools)
-    except Exception as exc:
-        return {"messages": [AIMessage(content=f"Lỗi LLM: {exc}. Thử lại hoặc hỏi lại câu khác.")]}
-    return {"messages": [response]}
+        # system_prompt có thể là string tĩnh hoặc callable (đánh giá lại mỗi lượt —
+        # cần khi prompt tiêm giờ hiện tại, xem src/agent/graph.py).
+        prompt_text = system_prompt() if callable(system_prompt) else system_prompt
+        messages = [{"role": "system", "content": prompt_text}] + list(state.get("messages") or [])
+        try:
+            response = invoke_with_tools(messages, tools)
+        except Exception as exc:
+            t["output"] = {"error": str(exc)}
+            return {"messages": [AIMessage(content=f"Lỗi LLM: {exc}. Thử lại hoặc hỏi lại câu khác.")]}
+        t["output"] = {"tool_calls": _tool_call_summary(getattr(response, "tool_calls", None) or [])}
+        return {"messages": [response]}
 
 
 def last_tool_json(state: dict, names: set[str]) -> str:
@@ -105,11 +126,25 @@ def parse_tool_output(raw: str, cls):
         return None
 
 
+def _tools_node(state: dict, *, tools: list) -> dict:
+    """ToolNode có nested span `chay_tool` — chỉ ghi tên tool, không dump rows."""
+    span = state.get("_trace_span")
+    with trace_step(span, "chay_tool", input=state.get("question") or "") as t:
+        result = ToolNode(tools).invoke(state)
+        names = [
+            getattr(m, "name", None)
+            for m in (result.get("messages") or [])
+            if getattr(m, "name", None)
+        ]
+        t["output"] = {"tools": names}
+        return result
+
+
 def build_react_subgraph(state_cls, *, tools: list, system_prompt, offline_call, seed_fn, pack_fn):
     graph = StateGraph(state_cls)
     graph.add_node("seed", seed_fn)
     graph.add_node("agent", partial(agent_node, tools=tools, system_prompt=system_prompt, offline_call=offline_call))
-    graph.add_node("tools", ToolNode(tools))
+    graph.add_node("tools", partial(_tools_node, tools=tools))
     graph.add_node("pack", pack_fn)
 
     graph.add_edge(START, "seed")
