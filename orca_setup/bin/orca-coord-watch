@@ -1,0 +1,195 @@
+#!/usr/bin/env bash
+# orca-coord-watch — wake Coordinator when workers finish
+#
+# worker_done reaches the Run mailbox, but Cursor coordinator panes often do
+# not auto-wake. This daemon polls inbox with peek semantics (never consumes
+# orchestration check mail) + watches specs/agent-reports/, then injects a
+# prompt into the coordinator tab via `orca terminal send`.
+#
+#   orca-coord-watch --run RUN --terminal TERM [--workdir PATH]
+#   orca-coord-watch --stop | --status
+set -euo pipefail
+
+# Resolve real script path (symlink-safe: ~/.local/bin/orca-coord-watch → playbooks/bin)
+_SELF="${BASH_SOURCE[0]:-$0}"
+_SELF="$(readlink -f "$_SELF" 2>/dev/null || realpath "$_SELF" 2>/dev/null || echo "$_SELF")"
+PLAYBOOK_ROOT="$(cd "$(dirname "$_SELF")/.." && pwd)"
+LOG_DIR="${PLAYBOOK_ROOT}/logs"
+STATE_FILE="${LOG_DIR}/coord-watch.state"
+PID_FILE="${LOG_DIR}/coord-watch.pid"
+LOG_FILE="${LOG_DIR}/coord-watch.log"
+SEEN_FILE="${LOG_DIR}/coord-watch.seen"
+mkdir -p "$LOG_DIR"
+touch "$SEEN_FILE"
+
+resolve_orca() {
+  if [[ -n "${ORCA_CLI_COMMAND:-}" ]]; then echo "$ORCA_CLI_COMMAND"; return; fi
+  if [[ -x "${HOME}/.orca/cli/bin/orca" ]]; then echo "${HOME}/.orca/cli/bin/orca"; return; fi
+  if command -v orca-ide >/dev/null 2>&1; then command -v orca-ide; return; fi
+  command -v orca
+}
+
+ORCA="$(resolve_orca)"
+log() { printf '[%s] %s\n' "$(date -Iseconds)" "$*" | tee -a "$LOG_FILE"; }
+
+if [[ "${1:-}" == "--stop" ]]; then
+  if [[ -f "$PID_FILE" ]]; then
+    pid="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      sleep 0.4
+      kill -9 "$pid" 2>/dev/null || true
+      log "stopped pid=$pid"
+    fi
+    rm -f "$PID_FILE"
+  fi
+  echo stopped
+  exit 0
+fi
+
+if [[ "${1:-}" == "--status" ]]; then
+  if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    echo "running pid=$(cat "$PID_FILE")"
+    cat "$STATE_FILE" 2>/dev/null || true
+    exit 0
+  fi
+  echo "not running"
+  exit 1
+fi
+
+RUN_ID=""; COORD_TERM=""; WORKDIR=""; MODE=start; POLL_SEC=5
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --run) RUN_ID=$2; shift 2 ;;
+    --terminal) COORD_TERM=$2; shift 2 ;;
+    --workdir) WORKDIR=$2; shift 2 ;;
+    --poll-sec) POLL_SEC=$2; shift 2 ;;
+    --daemon) MODE=daemon; shift ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+  esac
+done
+
+[[ -n "$RUN_ID" && -n "$COORD_TERM" ]] || {
+  echo "Usage: orca-coord-watch --run RUN --terminal TERM [--workdir PATH]" >&2
+  exit 2
+}
+
+seen_has() { grep -qxF "$1" "$SEEN_FILE" 2>/dev/null; }
+seen_add() { seen_has "$1" || echo "$1" >>"$SEEN_FILE"; }
+
+wake_coordinator() {
+  local subject="$1" preview="$2"
+  local msg
+  msg="[ORCA auto-wake] worker_done on run:${RUN_ID}
+Subject: ${subject}
+Preview: ${preview}
+Coordinator MUST: drain inbox (orca orchestration inbox --terminal run:${RUN_ID} --limit 10 --full); read newest specs/agent-reports/*; summarize for user; dispatch next. Do not wait to be poked."
+  if "$ORCA" terminal send --terminal "$COORD_TERM" --text "$msg" --enter --wait-submit 12 --json >>"$LOG_FILE" 2>&1; then
+    log "woke coordinator subject=${subject:0:100}"
+  else
+    log "WARN terminal send failed term=$COORD_TERM"
+  fi
+}
+
+scan_reports() {
+  [[ -n "$WORKDIR" && -d "$WORKDIR/specs/agent-reports" ]] || return 0
+  local f base
+  for f in "$WORKDIR"/specs/agent-reports/*.md; do
+    [[ -f "$f" ]] || continue
+    base="$(basename "$f")"
+    seen_has "file:$base" && continue
+    if [[ "$f" -nt "$STATE_FILE" ]]; then
+      seen_add "file:$base"
+      wake_coordinator "file-inbox:$base" "new report $base"
+      sleep 1
+    else
+      seen_add "file:$base"
+    fi
+  done
+}
+
+scan_inbox() {
+  local tmp
+  tmp="$(mktemp)"
+  if ! "$ORCA" orchestration inbox --terminal "run:${RUN_ID}" --limit 30 --json >"$tmp" 2>>"$LOG_FILE"; then
+    rm -f "$tmp"; return 0
+  fi
+  while IFS=$'\t' read -r mid subj body; do
+    [[ -n "$mid" ]] || continue
+    seen_has "msg:$mid" && continue
+    seen_add "msg:$mid"
+    wake_coordinator "$subj" "$body"
+    sleep 1
+  done < <(python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+for m in d.get("result",{}).get("messages",[]):
+  if m.get("type")!="worker_done": continue
+  mid=m.get("id") or ""
+  if not mid: continue
+  print("%s\t%s\t%s" % (mid, (m.get("subject") or "")[:120], (m.get("body") or "").replace("\n"," ")[:160]))
+' "$tmp" 2>>"$LOG_FILE" || true)
+  rm -f "$tmp"
+}
+
+bootstrap_seen() {
+  if [[ -n "$WORKDIR" && -d "$WORKDIR/specs/agent-reports" ]]; then
+    for f in "$WORKDIR"/specs/agent-reports/*.md; do
+      [[ -f "$f" ]] || continue
+      seen_add "file:$(basename "$f")"
+    done
+  fi
+  local tmp; tmp="$(mktemp)"
+  if "$ORCA" orchestration inbox --terminal "run:${RUN_ID}" --limit 80 --json >"$tmp" 2>/dev/null; then
+    python3 -c '
+import json,sys
+d=json.load(open(sys.argv[1]))
+for m in d.get("result",{}).get("messages",[]):
+  mid=m.get("id")
+  if mid: print(mid)
+' "$tmp" 2>/dev/null | while read -r mid; do seen_add "msg:$mid"; done || true
+  fi
+  rm -f "$tmp"
+}
+
+daemon_main() {
+  echo $$ >"$PID_FILE"
+  log "daemon start run=$RUN_ID term=$COORD_TERM workdir=${WORKDIR:-none} poll=${POLL_SEC}s"
+  bootstrap_seen
+  while true; do
+    scan_inbox || true
+    scan_reports || true
+    sleep "$POLL_SEC"
+  done
+}
+
+if [[ "$MODE" == "daemon" ]]; then
+  daemon_main
+  exit 0
+fi
+
+# launcher
+if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+  kill "$(cat "$PID_FILE")" 2>/dev/null || true
+  sleep 0.3
+fi
+
+cat >"$STATE_FILE" <<EOF
+{
+  "runId": "$RUN_ID",
+  "coordinatorTerminal": "$COORD_TERM",
+  "workdir": "${WORKDIR}",
+  "startedAt": "$(date -Iseconds)",
+  "orca": "$ORCA",
+  "pollSec": $POLL_SEC
+}
+EOF
+
+nohup bash "$0" --run "$RUN_ID" --terminal "$COORD_TERM" \
+  ${WORKDIR:+--workdir "$WORKDIR"} --poll-sec "$POLL_SEC" --daemon \
+  >>"$LOG_FILE" 2>&1 &
+echo $! >"$PID_FILE"
+sleep 0.4
+echo "started pid=$(cat "$PID_FILE") log=$LOG_FILE"
+bash "$0" --status || true

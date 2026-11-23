@@ -17,12 +17,14 @@ Không cần zip script sẵn. **File này là nguồn sự thật.** Khi xong, 
 6. Logout **không** reset quota Anthropic.
 7. Không commit credentials / `.credentials.json` vào git.
 8. **Session Cursor (tuỳ chọn):** ưu tiên reuse pane/session đang mở khi tiện; **không bắt buộc** cấm spawn worker/tab mới — spawn khi role cần (Test writer / Reviewer-5a) hoặc user yêu cầu.
-9. **SDD theo guide tiếng Việt:** đọc + làm theo `Spec Driven Development Guide - Vietnamese.md` (cạnh repo / copy theo máy). Spec sống trong `specs/`; **một phase/task một lần**; sau mỗi lần triển khai → tick plan + `specs/change-log.md` + cách test — trước khi sang task kế.
-10. Playbook này là **template mọi project** trên máy (không chỉ FGS); FGS chỉ là repo mang file đi.
-11. **Coordinator (ô Spec/Cursor) chỉ điều phối:** phân loại câu hỏi → dispatch đúng role (§15b). Không tự đọc docs/repo để tổng kết thay Explorer; không code thay Implementer; không viết spec thay Planner — trừ khi việc đó là meta-setup khung Orca hoặc không thuộc role nào.
-12. **Mọi agent phải báo về Coordinator khi xong** (§15c): ghi `specs/agent-reports/*` + `worker_done` (khi có dispatch). Chỉ in trong pane = **chưa xong**. Coordinator bắt buộc đọc report rồi mới đưa hướng đi tiếp.
-13. **Verify sau task lớn** (§18): tool check trước; AI không thay lint/typecheck/unit; review đối kháng + bằng chứng; eval metric khi có ground truth.
-14. **Tên tab/session Orca bắt buộc** theo bảng §15d (vd. `03 Planner (Claude)`). Mỗi lần `agent launch` / tạo pane / rename: đặt đúng title đó — không để tên mặc định agent.
+9. **SDD theo guide tiếng Việt:** đọc + làm theo `Spec Driven Development Guide - Vietnamese.md` (cạnh repo / copy theo máy). Spec sống **chỉ** 4 file trong `specs/`; **một phase/task một lần**; sau mỗi lần triển khai → tick plan + `specs/change-log.md` + cách test.
+10. **Cổng review mỗi feature (§6c):** Implement → Review vs acceptance → Fix-only nếu Blocked → `Approved` rồi mới task kế. Cấm nhảy task khi chưa Approved.
+11. Playbook này là **template mọi project** trên máy (không chỉ FGS); FGS chỉ là repo mang file đi.
+12. **Coordinator (ô Spec/Cursor) chỉ điều phối:** phân loại câu hỏi → dispatch đúng role (§15b). Không tự đọc docs/repo để tổng kết thay Explorer; không code thay Implementer; không viết spec thay Planner — trừ khi việc đó là meta-setup khung Orca hoặc không thuộc role nào. **Không** bỏ qua cổng §6c.
+13. **Mọi agent phải báo về Coordinator khi xong** (§15c): ghi `specs/agent-reports/*` + `worker_done` (khi có dispatch). Chỉ in trong pane = **chưa xong**. Coordinator bắt buộc đọc report rồi mới đưa hướng đi tiếp.
+14. **Auto-wake Coordinator (§15e) — bắt buộc:** pane Cursor thường **không** nhận `worker_done` thành turn mới. Sau mỗi `worker-start`, Coordinator **phải** chạy `orca-coord-watch --run <runId> --terminal <coordTerm> --workdir <project>`. Không chờ user nhắc / paste ảnh.
+15. **Verify sau task lớn** (§18): tool check trước; AI không thay lint/typecheck/unit; review đối kháng + bằng chứng; eval metric khi có ground truth.
+16. **Tên tab/session Orca bắt buộc** theo bảng §15d (vd. `03 Planner (Claude)`). Mỗi lần `agent launch` / tạo pane / rename: đặt đúng title đó — không để tên mặc định agent.
 
 ---
 
@@ -76,6 +78,8 @@ $PLAYBOOK/
   bin/orca-open
   bin/orca-roles-run
   bin/orca-claude-after-task
+  bin/orca-coord-watch          # §15e — auto-wake Coordinator (bắt buộc)
+  bin/orca-coord-drain          # §15e — drain inbox + reports khi turn bắt đầu
   desktop/orca-with-logout.desktop
   logs/
 ```
@@ -96,6 +100,8 @@ ln -sfn "$PLAYBOOK/bin/agent-fallback"         "$HOME/.local/bin/agent-fallback"
 ln -sfn "$PLAYBOOK/bin/orca-roles-run"         "$HOME/.local/bin/orca-roles-run"
 ln -sfn "$PLAYBOOK/bin/orca-quit-logout"       "$HOME/.local/bin/orca-quit-logout"
 ln -sfn "$PLAYBOOK/bin/orca-claude-after-task" "$HOME/.local/bin/orca-claude-after-task"
+ln -sfn "$PLAYBOOK/bin/orca-coord-watch"       "$HOME/.local/bin/orca-coord-watch"
+ln -sfn "$PLAYBOOK/bin/orca-coord-drain"       "$HOME/.local/bin/orca-coord-drain"
 cp "$PLAYBOOK/desktop/orca-with-logout.desktop" "$HOME/.local/share/applications/"
 # Sửa Exec= trong .desktop thành đường dẫn tuyệt đối $PLAYBOOK/bin/orca-open trên máy này
 ```
@@ -146,40 +152,70 @@ New feature request
 2 Planner (Claude plan-mode, nhẹ) ──after Claude task──► Stop Claude + logout
         │                                                      │
         ▼                                                      │ next Claude task
-  specs/ (product-spec + implementation-plan + change-log)
+  specs/ (4 file: product + plan + test-plan + change-log)
+  + review MVP spec (Planner pass 2 / user) trước khi code
         │                                         Login Claude + launch
-        ├──────────────────────┬───────────────────┘
-        ▼                      ▼
-3 Implementer            4 Test writer
-  (Antigravity,           (Cursor, vừa)
-   nặng nhất,              // song song với 3
-   new-child worktree)     // test từ product-spec / test-plan
-        │                      │
-        └──────────┬───────────┘
-                   ▼
-            5a Reviewer Cursor (vừa)
-               so với product-spec + edge cases
+        │
+        └────────── per unchecked task (lặp đến hết plan) ──────────┐
+                    │                                                 │
+        ┌───────────┴───────────┐                                     │
+        ▼                       ▼                                     │
+3 Implementer            4 Test writer                                │
+  (một task [ ] thôi)     (acceptance của task đó)                    │
+        │                       │                                     │
+        └──────────┬────────────┘                                     │
+                   ▼                                                  │
+            5a Reviewer Cursor                                        │
+               vs product-spec + test-plan                            │
+                   │                                                  │
+            Approved?──no──► Fix-only (3/4) ──► 5a lại                │
+                   │ yes                                              │
+                   ▼                                                  │
+            5b Reviewer Claude (khi cần)                              │
+               ──after Claude──► Stop + logout                        │
+                   │                                                  │
+            Approved?──no──► Fix-only ──► 5a/5b lại                   │
+                   │ yes                                              │
+                   ▼                                                  │
+            Task đóng → task [ ] tiếp theo ───────────────────────────┘
                    │
                    ▼
-            5b Reviewer Claude filtered diff (nhẹ)
-               ──after Claude task──► Stop Claude + logout
-                   │
-                   ▼
-                 Done
+                 Done (hết plan / MVP)
 ```
 
 **Thứ tự cứng**
 
 1. Không Planner trước khi có `REPO_DIGEST.md`.
-2. Không Implementer / Test writer trước khi có **SPEC_PLAN** = `specs/product-spec.md` + `specs/implementation-plan.md` (alias cũ `SPEC.md`+`PLAN.md` vẫn chấp nhận).
+2. Không Implementer / Test writer trước khi có **SPEC_PLAN** = `specs/product-spec.md` + `specs/implementation-plan.md` (alias cũ `SPEC.md`+`PLAN.md` vẫn chấp nhận) **và** spec đã qua bước review MVP (guide VN bước 2).
 3. Implementer/Test chỉ làm **một** unchecked task trong `implementation-plan.md` mỗi vòng (guide VN).
-4. **3 ∥ 4** chạy song song sau SPEC_PLAN (independent).
+4. **3 ∥ 4** chạy song song trên **cùng một** task (independent).
 5. **5a** sau khi cả 3 và 4 xong (hoặc đủ artifact để review).
-6. **5b** sau 5a; Claude chỉ đọc filtered diff + logic nhạy cảm.
-7. Mỗi lần xong task Claude (2 hoặc 5b): **Stop Claude + logout**; lần Claude sau: **Login + launch**.
+6. **5b** sau 5a khi cần; Claude chỉ đọc filtered diff + logic nhạy cảm.
+7. **Cổng review (bắt buộc):** không dispatch task `[ ]` kế cho đến khi 5a (và 5b nếu đã mở) trả `Approved`. `Blocked` → Fix-only cùng task → review lại (guide VN bước 6→7→8).
+8. Mỗi lần xong task Claude (2 hoặc 5b): **Stop Claude + logout**; lần Claude sau: **Login + launch**.
 
 Chạy DAG: `orca-roles-run --brief "..."` (sau setup).  
 Hoặc orchestration thủ công đúng agent đã `agent-fallback resolve`.
+
+---
+
+## 6c. Vòng lặp SDD mỗi feature (ép agent — guide VN)
+
+Nguồn: `Spec Driven Development Guide - Vietnamese.md` trong gói này (và bản handbook trong repo nếu có).
+
+**Spec sống chỉ ở 4 file:** `product-spec.md`, `implementation-plan.md`, `test-plan.md`, `change-log.md`. Không đẻ `docs/superpowers/plans/…` hay SPEC phụ trừ khi user Explicit.
+
+| Bước | Ai | Việc |
+|------|-----|------|
+| Plan + review MVP | Planner (+ user/Coordinator xác nhận) | Viết/chỉnh 4 file; làm rõ acceptance; **chưa code** |
+| Implement 1 task | Implementer | Chỉ 1 `[ ]`; trước code: tóm tắt what/files/how-test; sau: tick + `change-log` + lệnh test |
+| Test acceptance | Test writer | Map acceptance → test; song song Implementer trên cùng task |
+| Review | Reviewer 5a → (tuỳ) 5b | So `product-spec` + `test-plan`: pass / fail / missing; `Approved` \| `Blocked` + bằng chứng |
+| Fix | Implementer / Test | **Chỉ** lỗi của task hiện tại; cập nhật `change-log`; **không** mở task mới |
+| Lặp | Coordinator | Chỉ khi `Approved` → dispatch unchecked task tiếp theo |
+| Gap tracker | Implementer / Reviewer | Khi `Approved` hạng mục gắn G\*: cập nhật hàng tương ứng trong `specs/gap-analysis-quy-trinh-product-agent.md` (§0 Protocol) |
+
+Coordinator **cấm** bỏ qua cổng review. Worker **cấm** tự nhảy sang task kế trong cùng một turn sau khi implement. Coordinator kiểm tra gap tracker đã khớp trước khi mở task kế liên quan G\*.
 
 ---
 
@@ -188,13 +224,13 @@ Hoặc orchestration thủ công đúng agent đã `agent-fallback resolve`.
 | # | Session | AI | Mức token | Việc làm |
 |---|---------|-----|-----------|----------|
 | 1 | Explorer | **Antigravity** (context lớn / Gemini Flash High) | **Nặng** | Đọc cả repo; tạo `REPO_DIGEST.md`: cấu trúc, module chính, conventions, chỗ cần sửa / rủi ro, cách chạy-test. **Không sửa production code.** |
-| 2 | Planner | **Claude Code (plan-mode)** → fallback cursor→antigravity | **Nhẹ** | Chỉ đọc `REPO_DIGEST.md` + vài file then chốt; viết/cập nhật `specs/` theo guide VN (§14b): tối thiểu `product-spec.md` + `implementation-plan.md` (+ `test-plan.md` khi cần). **Không implement.** Xong → logout Claude. |
-| 3 | Implementer (1–2 session) | **Antigravity** trên **worktree riêng** (`new-child`) | **Nặng nhất** | Làm đúng SPEC/PLAN; vòng test/lint đến xanh; task độc lập có thể song song nhiều implementer. |
-| 4 | Test writer | **Cursor** → fallback antigravity | **Vừa** | Viết test từ SPEC/PLAN, **độc lập** code session 3 (không chờ implementation hoàn chỉnh). |
-| 5a | Reviewer round 1 | **Cursor** → fallback antigravity | **Vừa** | Check requirements, edge cases, test còn thiếu so với SPEC. |
-| 5b | Reviewer round 2 | **Claude Code** → fallback | **Nhẹ** | Chỉ xem **filtered diff**; tập trung logic nhạy cảm (tiết kiệm token Claude). Xong → logout Claude. |
+| 2 | Planner | **Claude Code (plan-mode)** → fallback cursor→antigravity | **Nhẹ** | Chỉ đọc `REPO_DIGEST.md` + vài file then chốt; viết/cập nhật **4 file** `specs/` theo guide VN (§14b). Pass review MVP (rõ, đơn giản) trước khi code. **Không implement.** Xong → logout Claude. |
+| 3 | Implementer (1–2 session) | **Antigravity** trên **worktree riêng** (`new-child`) | **Nặng nhất** | **Một** task `[ ]` mỗi vòng; test/lint xanh; sau đó **dừng** chờ review — không tự mở task kế. Fix-only khi Reviewer `Blocked`. |
+| 4 | Test writer | **Cursor** → fallback antigravity | **Vừa** | Test từ acceptance của **cùng** task; song song 3 được. Không nhảy task khi chưa Approved. |
+| 5a | Reviewer round 1 | **Cursor** → fallback antigravity | **Vừa** | So product-spec + test-plan: pass/fail/missing; `Approved`\|`Blocked`. Gate sang task kế (§6c). |
+| 5b | Reviewer round 2 | **Claude Code** → fallback | **Nhẹ** | Filtered diff + logic nhạy cảm. Xong → logout Claude. Cũng là cổng `Approved`\|`Blocked`. |
 
-**Output bắt buộc theo bước:** `REPO_DIGEST.md` → `specs/` (product + plan + change-log) → code/commits + tests → báo cáo review 5a/5b → Done.  
+**Output bắt buộc theo bước:** `REPO_DIGEST.md` → `specs/` (4 file) → (lặp) code/tests một task → review Approved → task kế → Done.  
 *(Alias cũ `SPEC.md`/`PLAN.md` = nội dung tương đương `specs/product-spec.md` + `specs/implementation-plan.md` — ưu tiên layout guide VN.)*
 
 ---
@@ -303,8 +339,11 @@ Files cần có:
 - `orca-open` — `orca open` rồi poll `orca status` until not running → quit-logout  
 - `orca-roles-run` — DAG 5 vai; mỗi role `agent-fallback resolve`; Claude start chỉ khi resolved=`claude`  
 - `orca-claude-after-task` — wrapper stop  
+- `orca-coord-watch` — §15e auto-wake Coordinator (copy từ `orca_setup/bin/`)  
+- `orca-coord-drain` — §15e drain inbox/reports đầu turn  
 
-Roles markdown: copy từ **`orca_setup/roles/`** (`01`…`05`, `_REPORT_BACK`, `_VERIFY`) vào `$PLAYBOOK/roles/`.
+Roles markdown: copy từ **`orca_setup/roles/`** (`01`…`05`, `_REPORT_BACK`, `_VERIFY`) vào `$PLAYBOOK/roles/`.  
+Bin wake: copy từ **`orca_setup/bin/`** (`orca-coord-watch`, `orca-coord-drain`) nếu chưa có trong `$PLAYBOOK/bin/`.
 
 Desktop file:
 
@@ -328,10 +367,10 @@ Agent phải **tái tạo** các script theo hành vi §7–§10 (không đượ
 
 - [ ] Probe máy (§1) — ghi ORCA, HOME, OS  
 - [ ] Tạo/cập nhật `$PLAYBOOK` (§2)  
-- [ ] Symlink + desktop + PATH (§3)  
+- [ ] Symlink + desktop + PATH (§3) — gồm `orca-coord-watch` / `orca-coord-drain`  
 - [ ] Smoke (§4)  
 - [ ] Marker `.orca-playbook-installed` (§5)  
-- [ ] Báo user: dùng `orca-open`, `orca-roles-run`, fallback chain  
+- [ ] Báo user: dùng `orca-open`, `orca-roles-run`, fallback chain, **§15e auto-wake**  
 
 ---
 
@@ -363,11 +402,12 @@ Trên máy khác: giữ file trong `orca_setup/` hoặc copy ra cạnh `specs/`.
 
 **Nguyên tắc lấy từ guide (rút gọn, không thay thế việc đọc guide):**
 
-1. Viết ý tưởng → chuyển thành spec **trước** khi code.
+1. Viết ý tưởng → chuyển thành spec **trước** khi code; review MVP spec trước khi implement.
 2. **Không** nhờ agent build cả feature/app một lần — đọc `specs/` rồi triển khai **một** phase/task unchecked.
 3. Sau mỗi lần triển khai: tick checklist, cập nhật `specs/change-log.md`, nêu lệnh test.
-4. Không đổi kiến trúc / thêm lib trừ khi đã sửa spec trước.
-5. Review theo acceptance criteria trong product-spec (+ test-plan nếu có).
+4. **Review lặp** so acceptance (pass/fail/missing) → Fix-only nếu cần → `Approved` rồi mới task kế (§6c).
+5. Không đổi kiến trúc / thêm lib trừ khi đã sửa spec trước.
+6. Chỉ 4 file trong `specs/` — không đẻ plan/spec phụ trừ khi user Explicit.
 
 **Cây `specs/` chuẩn (guide VN):**
 
@@ -477,19 +517,51 @@ Mọi `--spec` / `--spec-file` **phải** ghép nội dung `roles/_REPORT_BACK.m
 | A | Worker | Viết `specs/agent-reports/<timestamp>-<role>.md` (summary + artifacts + `next_hint`) |
 | B | Worker | Cập nhật `specs/session-handoff.md` → **Hoàn thành gần nhất** |
 | C | Worker | `orca orchestration send --type worker_done --outcome succeeded\|failed …` khi có Task/Dispatch |
-| D | Coordinator | Khi wake **hoặc** thấy file report mới: tóm tắt cho user + chọn bước tiếp (dispatch role kế / hỏi user) |
-| E | Coordinator | Nếu lâu không wake: `orca orchestration worker-show --dispatch <id>` + đọc `specs/agent-reports/` mới nhất — **không** chờ user nhắc |
+| D | Coordinator | **Bật `orca-coord-watch` ngay sau `worker-start`** (§15e); khi được inject wake: tóm tắt cho user + chọn bước tiếp |
+| E | Coordinator | Không chờ user nhắc. Nếu wake trễ: `orca-coord-drain` + đọc `specs/agent-reports/` + inbox Run |
 
 Template đầy đủ: `$PLAYBOOK/roles/_REPORT_BACK.md` (copy từ `orca_setup/roles/_REPORT_BACK.md`).
 
 **Coordinator checklist sau mỗi dispatch:**
 
-1. Ghi dispatchId vào `specs/session-handoff.md` (Đang chạy).
-2. Kết thúc turn nếu đang chờ wake; khi được wake / user hỏi lại → **ưu tiên** đọc report trước khi làm gì khác.
-3. Xóa/đánh dấu xong dòng Đang chạy; điền Hoàn thành gần nhất.
-4. Đưa hướng đi tiếp (một câu rõ: role nào / việc gì) — trừ khi user chỉ hỏi thông tin và chưa muốn làm tiếp.
+1. Ghi dispatchId / runId vào `specs/session-handoff.md` (Đang chạy).
+2. **Ngay sau `worker-start` thành công:** chạy `orca-coord-watch` (§15e) — không bỏ bước này.
+3. Kết thúc turn để chờ wake inject; khi wake / `orca-coord-drain` → **ưu tiên** đọc report trước khi làm gì khác.
+4. Xóa/đánh dấu xong dòng Đang chạy; điền Hoàn thành gần nhất; `task-update --status completed` khi worker_done succeeded.
+5. Đưa hướng đi tiếp (một câu rõ: role nào / việc gì) — trừ khi user chỉ hỏi thông tin và chưa muốn làm tiếp.
+6. **Cổng SDD (§6c):** sau Implement/Test → hướng tiếp **bắt buộc** là Reviewer-5a (không phải task kế). Sau `Blocked` → Fix-only cùng task. Sau `Approved` → mới được unchecked task tiếp theo.
 
 **`orca-roles-run`:** mỗi role spec phải kết thúc bằng khối REPORT_BACK (script materialize từ §12 phải `cat` `_REPORT_BACK.md` vào cuối spec).
+
+---
+
+## 15e. Auto-wake Coordinator (Cursor pane — bắt buộc)
+
+**Sự thật vận hành:** `worker_done` luôn vào **mailbox của Run**, nhưng pane Coordinator chạy **Cursor** thường **không** tự mở turn mới. User không được là người “đánh thức” bằng cách paste ảnh.
+
+**Công cụ (trong `orca_setup/bin/` → copy sang `$PLAYBOOK/bin/`):**
+
+| Script | Việc |
+|--------|------|
+| `orca-coord-watch` | Daemon: peek inbox Run + theo dõi `specs/agent-reports/`; khi có `worker_done`/report mới → `orca terminal send --enter` vào pane Coordinator với prompt bắt buộc đọc + phản hồi |
+| `orca-coord-drain` | Helper đầu turn: in run-current, status watch, report mới, inbox — Coordinator chạy khi nhận auto-wake |
+
+**Sau mỗi `worker-start` (template cứng):**
+
+```bash
+# worker-start ... --json  → lấy runId từ result
+orca-coord-watch \
+  --run <runId> \
+  --terminal term_<coordinator> \
+  --workdir "$(pwd)"
+# xác nhận: orca-coord-watch --status
+```
+
+- Đổi Run / đổi project → chạy lại `orca-coord-watch` (script thay daemon cũ).
+- Dừng: `orca-coord-watch --stop`.
+- Khi nhận tin `[ORCA auto-wake]`: chạy `orca-coord-drain --run <runId> --workdir <project>` (hoặc tương đương), đọc report, tóm tắt user, dispatch bước tiếp — **không** hỏi lại “đã xong chưa?”.
+
+**Không** coi “end turn và hy vọng Orca native wake Cursor” là đủ trên máy lab dùng Cursor làm Coordinator.
 
 ---
 
@@ -574,12 +646,14 @@ Chỉ khi user Explicit chọn (vd. *“merge local vào main”*, *“cho phép
 | Playbook dùng lại mọi project | Có | §0.10 |
 | Không spawn Cursor mới | **Không bắt buộc** — chỉ ưu tiên reuse | §0.8, §15 |
 | SDD theo guide VN (`specs/` + 1 task/lần + change-log) | Có | §0.9, §14b |
+| Cổng review mỗi feature (Implement→Review→Fix→Approved→task kế) | Có | §0.10, §6, §6c, §15c |
 | Bọc FGS / metrics / GPU fixture / TDD | Có | §14 |
 | Coordinator chỉ điều phối; đọc docs/tổng kết → Explorer | Có | §15b |
-| Mọi agent báo Coordinator (file inbox + worker_done) | Có | §0.12, §15c |
+| Mọi agent báo Coordinator (file inbox + worker_done) | Có | §0.13, §15c |
+| Auto-wake Cursor Coordinator (`orca-coord-watch`) | Có | §0.14, §15e |
 | Sau xong workspace: test → commit → merge main → (push) → không tự xóa Orca WT | Có | §17 |
 | Verify: review đối kháng + bằng chứng; eval metric; không AI thay lint/test | Có | §18 |
-| Tên tab `01 Spec / Coordinator` … `06 Reviewer-5a (Cursor)` | Có | §0.14, §15d |
+| Tên tab `01 Spec / Coordinator` … `06 Reviewer-5a (Cursor)` | Có | §0.16, §15d |
 | Interactive login Claude khi start | Có | §8 |
 | Materialize scripts + symlink trên máy mới | Có | §2–§3, §12 |
 

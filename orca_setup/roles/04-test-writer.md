@@ -21,17 +21,20 @@
 - Cập nhật `specs/change-log.md` nếu thêm/sửa test đáng kể
 
 ## Done when
-- Tests phản ánh acceptance; chạy được (hoặc RED đúng lý do nếu code chưa có).
+- Tests phản ánh acceptance của **task đang làm**; chạy được (hoặc RED đúng lý do nếu code chưa có).
 - Không rewrite thuật toán ngoài phạm vi test.
+- Không nhảy sang acceptance của task kế khi task hiện tại chưa `Approved` (§6c).
 
 ## Prompt skeleton
 
 ```text
-You are Test writer (Cursor). Write tests from specs/product-spec.md
-acceptance (and specs/test-plan.md if present). Prefer behavior tests.
-Do not implement product features. Report which acceptance items each
-test covers. Update specs/change-log.md if needed.
+You are Test writer (Cursor). Write tests for the current task's
+acceptance in specs/product-spec.md (and specs/test-plan.md).
+Prefer behavior tests. Do not implement product features.
+Report which acceptance items each test covers. Update
+specs/change-log.md if needed. next_hint: wait for Reviewer-5a
+(or Fix-only if already in a review loop).
 ```
 
 ## Report back (bắt buộc)
-Xem `_REPORT_BACK.md`. Không bỏ qua file inbox + worker_done.
+Xem `_REPORT_BACK.md` + `_VERIFY.md`. Không bỏ qua file inbox + worker_done.

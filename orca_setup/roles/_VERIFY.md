@@ -13,8 +13,20 @@
 - Đo trên tập cố định; so cùng tập giữa các phiên bản.
 - Lab FGS: E2E + wall/RAM/compression đủ trừ khi specs yêu cầu thêm.
 
+## Cổng SDD mỗi feature (ORCA-AGENT-SETUP §6c)
+- Sau Implement/Test: Reviewer phải chạy trước khi task kế.
+- `Blocked` → Fix-only cùng task → review lại. `Approved` → mới unchecked task tiếp.
+- Implementer/Test **cấm** tự nhảy task trong cùng turn.
+
+## Gap tracker G0–G17
+- File: `specs/gap-analysis-quy-trinh-product-agent.md` (§0 Protocol).
+- Sau hạng mục **Approved** gắn G\*: cập nhật hàng bảng §1 (trạng thái / đã có / còn thiếu) + §5 lịch sử + `change-log`.
+- Report ghi `gap_updated: G..` hoặc `gap_updated: none`.
+
 ## Report
 Trong `specs/agent-reports/…` thêm:
 - `tools_run:` lệnh + exit code / tóm tắt output
 - `verdict:` Approved | Blocked | N/A
 - `findings:` Critical / Important / Minor (có bằng chứng) hoặc `none`
+- `sdd_gate:` passes | fails | missing (so acceptance) khi là Reviewer
+- `next_hint:` Reviewer-5a | Fix-only | next-task-after-Approved | …
