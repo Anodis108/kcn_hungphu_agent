@@ -5,17 +5,59 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	seed(seed)
-	agent(agent)
-	tools(tools)
-	pack(pack)
+	guardrail_input(guardrail_input)
+	guardrail_output(guardrail_output)
+	recall(recall)
+	rewrite(rewrite)
+	classify(classify)
+	respond_inline(respond_inline)
+	top_supervisor(top_supervisor)
+	orchestrator_collect(orchestrator_collect)
+	respond(respond)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> seed;
-	agent -.-> pack;
-	agent -.-> tools;
-	seed --> agent;
-	tools --> agent;
-	pack --> __end__;
+	__start__ --> guardrail_input;
+	analytics_team\3a__end__ -.-> orchestrator_collect;
+	analytics_team\3a__end__ -.-> respond;
+	classify -.-> respond_inline;
+	classify -.-> top_supervisor;
+	guardrail_input --> recall;
+	knowledge_team\3aanswer_from_docs -.-> orchestrator_collect;
+	knowledge_team\3aanswer_from_docs -.-> respond;
+	orchestrator_collect -.-> respond;
+	orchestrator_collect -. &nbsp;orchestrator&nbsp; .-> top_supervisor;
+	recall --> rewrite;
+	respond --> guardrail_output;
+	respond_inline --> respond;
+	rewrite --> classify;
+	top_supervisor -. &nbsp;query_data&nbsp; .-> analytics_team\3aretrieve_schema;
+	top_supervisor -. &nbsp;docs&nbsp; .-> knowledge_team\3aretrieve_docs;
+	top_supervisor -.-> respond;
+	top_supervisor -. &nbsp;out&nbsp; .-> respond_inline;
+	guardrail_output --> __end__;
+	subgraph analytics_team
+	analytics_team\3aretrieve_schema(retrieve_schema)
+	analytics_team\3agenerate_sql(generate_sql)
+	analytics_team\3avalidate_sql(validate_sql)
+	analytics_team\3arepair_sql(repair_sql)
+	analytics_team\3aexecute_sql(execute_sql)
+	analytics_team\3arender_chart(render_chart)
+	analytics_team\3a__end__(<p>__end__</p>)
+	analytics_team\3aexecute_sql -. &nbsp;done&nbsp; .-> analytics_team\3a__end__;
+	analytics_team\3aexecute_sql -.-> analytics_team\3arender_chart;
+	analytics_team\3aexecute_sql -.-> analytics_team\3arepair_sql;
+	analytics_team\3agenerate_sql --> analytics_team\3avalidate_sql;
+	analytics_team\3arepair_sql --> analytics_team\3avalidate_sql;
+	analytics_team\3aretrieve_schema --> analytics_team\3agenerate_sql;
+	analytics_team\3avalidate_sql -. &nbsp;done&nbsp; .-> analytics_team\3a__end__;
+	analytics_team\3avalidate_sql -.-> analytics_team\3aexecute_sql;
+	analytics_team\3avalidate_sql -.-> analytics_team\3arepair_sql;
+	analytics_team\3arender_chart --> analytics_team\3a__end__;
+	end
+	subgraph knowledge_team
+	knowledge_team\3aretrieve_docs(retrieve_docs)
+	knowledge_team\3aanswer_from_docs(answer_from_docs)
+	knowledge_team\3aretrieve_docs --> knowledge_team\3aanswer_from_docs;
+	end
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

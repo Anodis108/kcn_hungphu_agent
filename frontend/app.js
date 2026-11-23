@@ -8,10 +8,28 @@
 
   // State
   const state = {
-    activeModel: localStorage.getItem('agent_model_provider') || 'openai',
-    apiBaseUrl: localStorage.getItem('agent_api_base_url') || '',
     isGenerating: false,
     messages: [],
+    graphNodes: {},
+    streamAbortController: null,
+    streamEventsCount: 0,
+    userId: null,
+    activeSessionId: null,
+    sessions: [],
+    lastChart: null,
+    lastChartUrl: null,
+    lastChartSpec: null,
+    lastChartType: null,
+    lastChartRows: null,
+    lastStreamError: null,
+    lastQuestion: '',
+    lastAgentTrace: [],
+    feedbackContext: null,
+    attachedImageBase64: null,
+    attachedImageFilename: null,
+    memoryFactsCount: 0,
+    authUser: null,
+    iamRequired: false,
   };
 
   // DOM Elements
@@ -19,31 +37,562 @@
     sidebar: document.getElementById('sidebar'),
     btnToggleSidebar: document.getElementById('btn-toggle-sidebar'),
     btnNewChat: document.getElementById('btn-new-chat'),
-    btnOpenSettings: document.getElementById('btn-open-settings'),
+    sampleQuestionsAccordion: document.getElementById('sample-questions-accordion'),
+    sampleAccordionHeader: document.getElementById('sample-accordion-header'),
+    sessionList: document.getElementById('session-list'),
+    domainChips: document.getElementById('domain-chips'),
     sidebarModelLabel: document.getElementById('sidebar-model-label'),
     systemStatusText: document.getElementById('system-status-text'),
     systemStatusBadge: document.getElementById('system-status-badge'),
+    memoryStatusBadge: document.getElementById('memory-status-badge'),
+    memoryStatusText: document.getElementById('memory-status-text'),
+    btnResetMemory: document.getElementById('btn-reset-memory'),
     chatViewport: document.getElementById('chat-viewport'),
     welcomeScreen: document.getElementById('welcome-screen'),
     messagesList: document.getElementById('messages-list'),
     questionInput: document.getElementById('question-input'),
     btnSend: document.getElementById('btn-send'),
-    settingsModal: document.getElementById('settings-modal'),
-    btnCloseSettings: document.getElementById('btn-close-settings'),
-    btnSaveSettings: document.getElementById('btn-save-settings'),
-    radioOpenAI: document.getElementById('radio-openai'),
-    radioSelfHosted: document.getElementById('radio-self-hosted'),
-    inputApiUrl: document.getElementById('input-api-url'),
-    btnCheckHealth: document.getElementById('btn-check-health'),
-    healthResult: document.getElementById('health-result'),
+    graphPlaceholder: document.getElementById('graph-placeholder'),
+    graphNodes: document.getElementById('graph-nodes'),
+    graphIoEmpty: document.getElementById('graph-io-empty'),
+    graphIoBody: document.getElementById('graph-io-body'),
+    graphPanelHint: document.getElementById('graph-panel-hint'),
+    feedbackModal: document.getElementById('feedback-modal'),
+    btnCloseFeedback: document.getElementById('btn-close-feedback'),
+    btnCancelFeedback: document.getElementById('btn-cancel-feedback'),
+    btnSubmitFeedback: document.getElementById('btn-submit-feedback'),
+    feedbackReasonInput: document.getElementById('feedback-reason-input'),
+    feedbackFileInput: document.getElementById('feedback-file-input'),
+    feedbackUploadZone: document.getElementById('feedback-upload-zone'),
+    uploadPrompt: document.getElementById('upload-prompt'),
+    uploadPreview: document.getElementById('upload-preview'),
+    feedbackPreviewImg: document.getElementById('feedback-preview-img'),
+    btnRemovePreview: document.getElementById('btn-remove-preview'),
+    toastContainer: document.getElementById('toast-container'),
+    btnAuth: document.getElementById('btn-auth'),
+    authPillText: document.getElementById('auth-pill-text'),
+    authPillDot: document.getElementById('auth-pill-dot'),
+    authModal: document.getElementById('auth-modal'),
+    btnCloseAuth: document.getElementById('btn-close-auth'),
+    btnAuthLogin: document.getElementById('btn-auth-login'),
+    btnAuthLogout: document.getElementById('btn-auth-logout'),
+    btnAuthLoginText: document.getElementById('btn-auth-login-text'),
+    authUsername: document.getElementById('auth-username'),
+    authPassword: document.getElementById('auth-password'),
+    authError: document.getElementById('auth-error'),
+    authSession: document.getElementById('auth-session'),
+    authSessionName: document.getElementById('auth-session-name'),
+    authSessionMeta: document.getElementById('auth-session-meta'),
+    authQuickUsers: document.getElementById('auth-quick-users'),
   };
 
+
+  // ==========================================================================
+  // Session & LocalStorage Helpers (Phase 2)
+  // ==========================================================================
+  function generateUUID() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      const r = (Math.random() * 16) | 0;
+      const v = c === 'x' ? r : (r & 0x3) | 0x8;
+      return v.toString(16);
+    });
+  }
+
+  async function initUserAndSessions() {
+    // agent_user_id: UUID once
+    let uid = localStorage.getItem('agent_user_id');
+    if (!uid) {
+      uid = generateUUID();
+      localStorage.setItem('agent_user_id', uid);
+    }
+    state.userId = uid;
+
+    // Clean up mock agent_sessions if leftover from Phase 2
+    localStorage.removeItem('agent_sessions');
+
+    let loaded = [];
+    try {
+      const res = await apiFetch(`/api/sessions?user_id=${encodeURIComponent(state.userId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        loaded = Array.isArray(data.sessions) ? data.sessions : [];
+      }
+    } catch (err) {
+      console.error('Lỗi khi tải danh sách sessions:', err);
+      loaded = [];
+    }
+
+    if (loaded.length === 0) {
+      try {
+        const res = await apiFetch('/api/sessions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: state.userId }),
+        });
+        if (res.ok) {
+          const firstSession = await res.json();
+          loaded = [firstSession];
+        }
+      } catch (err) {
+        console.error('Lỗi khi tạo session mặc định:', err);
+      }
+    }
+
+    loaded.forEach(s => {
+      if (!Array.isArray(s.messages)) s.messages = [];
+    });
+    state.sessions = loaded;
+
+    // agent_session_id
+    let sid = localStorage.getItem('agent_session_id');
+    if (!sid || !state.sessions.some(s => s.id === sid)) {
+      sid = state.sessions.length > 0 ? state.sessions[0].id : null;
+      if (sid) {
+        localStorage.setItem('agent_session_id', sid);
+      } else {
+        localStorage.removeItem('agent_session_id');
+      }
+    }
+    state.activeSessionId = sid;
+  }
+
+  function formatSessionTime(isoString) {
+    if (!isoString) return '';
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return '';
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    if (isToday) {
+      return `${hours}:${minutes}`;
+    }
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    return `${day}/${month} ${hours}:${minutes}`;
+  }
+
+  function renderSessionList() {
+    if (!el.sessionList) return;
+    el.sessionList.innerHTML = '';
+
+    state.sessions.forEach(sess => {
+      const item = document.createElement('div');
+      item.className = 'session-item' + (sess.id === state.activeSessionId ? ' active' : '');
+      item.dataset.sessionId = sess.id;
+
+      const header = document.createElement('div');
+      header.className = 'session-item-header';
+
+      const title = document.createElement('span');
+      title.className = 'session-item-title';
+      title.textContent = sess.title || 'Phiên chat';
+
+      const meta = document.createElement('div');
+      meta.className = 'session-item-meta';
+
+      const time = document.createElement('span');
+      time.className = 'session-item-time';
+      time.textContent = formatSessionTime(sess.updated_at || sess.updatedAt);
+
+      const deleteBtn = document.createElement('button');
+      deleteBtn.type = 'button';
+      deleteBtn.className = 'session-delete-btn';
+      deleteBtn.title = 'Xóa phiên chat';
+      deleteBtn.setAttribute('aria-label', 'Xóa phiên chat');
+      deleteBtn.innerHTML = `
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="18" y1="6" x2="6" y2="18"></line>
+          <line x1="6" y1="6" x2="18" y2="18"></line>
+        </svg>
+      `;
+      deleteBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteSession(sess.id);
+      });
+
+      meta.appendChild(time);
+      meta.appendChild(deleteBtn);
+      header.appendChild(title);
+      header.appendChild(meta);
+
+      const preview = document.createElement('div');
+      preview.className = 'session-item-preview';
+      preview.textContent = sess.preview || 'Chưa có tin nhắn';
+
+      item.appendChild(header);
+      item.appendChild(preview);
+
+      item.addEventListener('click', () => {
+        switchSession(sess.id);
+      });
+
+      el.sessionList.appendChild(item);
+    });
+  }
+
+  async function switchSession(sessionId) {
+    if (state.activeSessionId === sessionId) return;
+    state.activeSessionId = sessionId;
+    localStorage.setItem('agent_session_id', sessionId);
+    renderSessionList();
+    await loadCurrentSessionMessages();
+  }
+
+  async function loadCurrentSessionMessages() {
+    el.messagesList.innerHTML = '';
+    resetGraph();
+
+    if (!state.activeSessionId) {
+      el.welcomeScreen.style.display = 'block';
+      state.messages = [];
+      return;
+    }
+
+    let messages = [];
+    try {
+      const res = await fetch(
+        getApiEndpoint(
+          `/api/sessions/${encodeURIComponent(state.activeSessionId)}/messages?user_id=${encodeURIComponent(state.userId)}`
+        )
+      );
+      if (res.ok) {
+        const data = await res.json();
+        messages = Array.isArray(data.messages) ? data.messages : [];
+      }
+    } catch (err) {
+      console.error('Lỗi khi tải lịch sử phiên:', err);
+    }
+
+    const sess = state.sessions.find(s => s.id === state.activeSessionId);
+    if (sess) {
+      sess.messages = messages;
+    }
+
+    if (messages.length === 0) {
+      el.welcomeScreen.style.display = 'block';
+      state.messages = [];
+      return;
+    }
+
+    el.welcomeScreen.style.display = 'none';
+    state.messages = messages;
+    messages.forEach(msg => {
+      appendMessage(msg.role, msg.content, msg.detail, msg.chart, msg.agent_trace);
+    });
+    scrollToBottom();
+  }
+
+  async function createNewSession() {
+    if (state.isGenerating) return;
+    try {
+      const res = await apiFetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: state.userId }),
+      });
+      if (!res.ok) throw new Error('Không thể tạo phiên chat mới');
+      const newSession = await res.json();
+      newSession.messages = [];
+      state.sessions.unshift(newSession);
+      state.activeSessionId = newSession.id;
+      localStorage.setItem('agent_session_id', newSession.id);
+      renderSessionList();
+      await loadCurrentSessionMessages();
+      el.questionInput.value = '';
+      adjustTextareaHeight();
+      el.questionInput.focus();
+    } catch (e) {
+      console.error('Lỗi createNewSession:', e);
+    }
+  }
+
+  async function deleteSession(sessionId) {
+    if (!sessionId) return;
+    try {
+      const res = await fetch(
+        getApiEndpoint(`/api/sessions/${encodeURIComponent(sessionId)}?user_id=${encodeURIComponent(state.userId)}`),
+        { method: 'DELETE' }
+      );
+      if (!res.ok && res.status !== 404) {
+        console.error('Lỗi khi xóa session:', res.statusText);
+        return;
+      }
+
+      state.sessions = state.sessions.filter(s => s.id !== sessionId);
+
+      if (state.activeSessionId === sessionId) {
+        if (state.sessions.length > 0) {
+          state.activeSessionId = state.sessions[0].id;
+          localStorage.setItem('agent_session_id', state.activeSessionId);
+          renderSessionList();
+          await loadCurrentSessionMessages();
+        } else {
+          await createNewSession();
+          return;
+        }
+      } else {
+        renderSessionList();
+      }
+    } catch (err) {
+      console.error('Lỗi deleteSession:', err);
+    }
+  }
+
+  // ==========================================================================
+  // Memory & Context Management (Phase 2 Core UI)
+  // ==========================================================================
+  function updateMemoryStatus(count, customText) {
+    const num = typeof count === 'number' ? count : 0;
+    state.memoryFactsCount = num;
+    if (el.memoryStatusText) {
+      el.memoryStatusText.textContent = customText || `Bộ nhớ: ${num} facts`;
+    }
+    if (el.memoryStatusBadge) {
+      el.memoryStatusBadge.title = `Bộ nhớ phiên: ${num} facts đã lưu trữ`;
+    }
+  }
+
+  async function fetchUserMemoryStatus() {
+    if (!state.userId) return;
+    try {
+      const res = await apiFetch(`/api/memory?user_id=${encodeURIComponent(state.userId)}`);
+      if (res.ok) {
+        const data = await res.json();
+        const facts = Array.isArray(data.memories) ? data.memories : (Array.isArray(data.facts) ? data.facts : []);
+        state.memoryFactsCount = facts.length;
+        updateMemoryStatus(state.memoryFactsCount);
+        return;
+      }
+    } catch (e) {
+      // Backend memory API fallback when endpoint not yet implemented or offline
+    }
+    updateMemoryStatus(state.memoryFactsCount || 0);
+  }
+
+  async function handleResetMemory() {
+    if (state.isGenerating) {
+      showToast('Vui lòng đợi trợ lý phản hồi xong trước khi đặt lại bộ nhớ.', 'warning');
+      return;
+    }
+    const confirmed = confirm('Bạn có chắc chắn muốn đặt lại bộ nhớ phiên và xóa các facts đã lưu của bạn?');
+    if (!confirmed) return;
+
+    if (el.btnResetMemory) {
+      el.btnResetMemory.disabled = true;
+      el.btnResetMemory.style.opacity = '0.6';
+    }
+
+    try {
+      const res = await apiFetch(`/api/memory?user_id=${encodeURIComponent(state.userId)}`, { method: 'DELETE' });
+      if (res.ok) {
+        showToast('Đã xóa bộ nhớ và đặt lại ngữ cảnh thành công!', 'success');
+        updateMemoryStatus(0);
+      } else {
+        showToast('Đã đặt lại bộ nhớ phiên làm việc.', 'success');
+        updateMemoryStatus(0);
+      }
+    } catch (err) {
+      console.warn('Lỗi kết nối khi xóa bộ nhớ, thực hiện fallback đặt lại cục bộ:', err);
+      showToast('Đã đặt lại bộ nhớ phiên làm việc.', 'success');
+      updateMemoryStatus(0);
+    } finally {
+      if (el.btnResetMemory) {
+        el.btnResetMemory.disabled = false;
+        el.btnResetMemory.style.opacity = '';
+      }
+    }
+  }
+
+
+  function getAccessToken() {
+    return (
+      localStorage.getItem('agent_access_token') ||
+      localStorage.getItem('access_token') ||
+      sessionStorage.getItem('access_token') ||
+      sessionStorage.getItem('auth_access_token_memory') ||
+      ''
+    );
+  }
+
+  function setAuthSession(user, token) {
+    state.authUser = user || null;
+    if (token) {
+      localStorage.setItem('agent_access_token', token);
+    }
+    if (user && user.organization_id != null) {
+      localStorage.setItem('agent_organization_id', String(user.organization_id));
+    }
+    if (user && user.user_id) {
+      localStorage.setItem('agent_user_id', String(user.user_id));
+      state.userId = String(user.user_id);
+    }
+    renderAuthPill();
+    renderAuthSessionBox();
+  }
+
+  function clearAuthSession() {
+    state.authUser = null;
+    localStorage.removeItem('agent_access_token');
+    localStorage.removeItem('access_token');
+    sessionStorage.removeItem('access_token');
+    sessionStorage.removeItem('auth_access_token_memory');
+    renderAuthPill();
+    renderAuthSessionBox();
+  }
+
+  function renderAuthPill() {
+    if (!el.authPillText) return;
+    const u = state.authUser;
+    if (u) {
+      el.authPillText.textContent = `${u.user_id} · ${u.role_group}`;
+      if (el.authPillDot) el.authPillDot.classList.add('on');
+      if (el.btnAuth) el.btnAuth.title = `${u.full_name || u.user_id} (${u.role_group})`;
+    } else {
+      el.authPillText.textContent = state.iamRequired ? 'Đăng nhập để hỏi' : 'Chưa đăng nhập';
+      if (el.authPillDot) el.authPillDot.classList.remove('on');
+      if (el.btnAuth) el.btnAuth.title = 'Đăng nhập tài khoản IAM (VMS)';
+    }
+  }
+
+  function renderAuthSessionBox() {
+    if (!el.authSession) return;
+    const u = state.authUser;
+    if (!u) {
+      el.authSession.hidden = true;
+      return;
+    }
+    el.authSession.hidden = false;
+    if (el.authSessionName) el.authSessionName.textContent = u.full_name || u.user_id;
+    const sites = (u.scope && u.scope.site_ids) ? u.scope.site_ids.join(',') : '—';
+    if (el.authSessionMeta) {
+      el.authSessionMeta.textContent = `${u.role_group} · org ${u.organization_id} · site [${sites}]`;
+    }
+  }
+
+  function openAuthModal(message) {
+    if (!el.authModal) return;
+    if (el.authError) {
+      if (message) {
+        el.authError.hidden = false;
+        el.authError.textContent = message;
+      } else {
+        el.authError.hidden = true;
+        el.authError.textContent = '';
+      }
+    }
+    renderAuthSessionBox();
+    el.authModal.classList.add('active');
+    el.authModal.setAttribute('aria-hidden', 'false');
+    if (el.authUsername && !el.authUsername.value) el.authUsername.focus();
+    else if (el.authPassword) el.authPassword.focus();
+  }
+
+  function closeAuthModal() {
+    if (!el.authModal) return;
+    el.authModal.classList.remove('active');
+    el.authModal.setAttribute('aria-hidden', 'true');
+  }
+
+  async function refreshAuthFromToken() {
+    const token = getAccessToken();
+    if (!token) {
+      clearAuthSession();
+      return false;
+    }
+    try {
+      const res = await apiFetch('/api/auth/me');
+      if (!res.ok) {
+        clearAuthSession();
+        return false;
+      }
+      const user = await res.json();
+      setAuthSession(user, token);
+      return true;
+    } catch (err) {
+      console.warn('auth/me failed', err);
+      return false;
+    }
+  }
+
+  async function handleAuthLogin() {
+    const username = (el.authUsername && el.authUsername.value || '').trim();
+    const password = el.authPassword ? el.authPassword.value : '';
+    if (!username || !password) {
+      if (el.authError) {
+        el.authError.hidden = false;
+        el.authError.textContent = 'Nhập tên đăng nhập và mật khẩu.';
+      }
+      return;
+    }
+    if (el.btnAuthLogin) el.btnAuthLogin.disabled = true;
+    if (el.btnAuthLoginText) el.btnAuthLoginText.textContent = 'Đang đăng nhập…';
+    if (el.authError) el.authError.hidden = true;
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, remember: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const detail = data.detail || `Đăng nhập thất bại (${res.status})`;
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      }
+      setAuthSession(data.user, data.access_token);
+      if (el.authPassword) el.authPassword.value = '';
+      closeAuthModal();
+      showToast(`Đã đăng nhập ${data.user.user_id} (${data.user.role_group})`, 'success');
+      await initUserAndSessions();
+      renderSessionList();
+    } catch (err) {
+      if (el.authError) {
+        el.authError.hidden = false;
+        el.authError.textContent = err.message || 'Đăng nhập thất bại';
+      }
+    } finally {
+      if (el.btnAuthLogin) el.btnAuthLogin.disabled = false;
+      if (el.btnAuthLoginText) el.btnAuthLoginText.textContent = 'Đăng nhập';
+    }
+  }
+
+  function handleAuthLogout() {
+    clearAuthSession();
+    if (el.authPassword) el.authPassword.value = '';
+    showToast('Đã đăng xuất', 'success');
+    if (state.iamRequired) openAuthModal('Đăng nhập lại để tiếp tục hỏi đáp.');
+    else closeAuthModal();
+  }
+
   // Initialize
-  function init() {
+  async function init() {
     setupEventListeners();
-    applyStateToUI();
-    checkSystemHealth();
     adjustTextareaHeight();
+    checkSystemHealth();
+    try {
+      const cfgRes = await apiFetch('/api/config');
+      if (cfgRes.ok) {
+        const cfg = await cfgRes.json();
+        state.iamRequired = !!cfg.iam_required;
+        if (cfg.default_organization_id && !localStorage.getItem('agent_organization_id')) {
+          localStorage.setItem('agent_organization_id', String(cfg.default_organization_id));
+        }
+      }
+    } catch (err) {
+      console.warn('config load failed', err);
+    }
+    const ok = await refreshAuthFromToken();
+    renderAuthPill();
+    if (state.iamRequired && !ok) {
+      openAuthModal('Bật chế độ production: cần đăng nhập IAM trước khi hỏi.');
+    }
+    await initUserAndSessions();
+    await fetchUserMemoryStatus();
+    renderSessionList();
+    await loadCurrentSessionMessages();
   }
 
   function setupEventListeners() {
@@ -53,19 +602,84 @@
       el.sidebar.classList.toggle('active');
     });
 
-    // New Chat
-    el.btnNewChat.addEventListener('click', resetChat);
+    // New Chat (#btn-new-chat)
+    el.btnNewChat.addEventListener('click', createNewSession);
 
-    // Quick Domain Tags & Suggestion Cards
-    document.querySelectorAll('[data-query]').forEach(item => {
-      item.addEventListener('click', () => {
-        const query = item.getAttribute('data-query');
-        if (query) {
-          el.questionInput.value = query;
-          adjustTextareaHeight();
-          handleSendMessage();
-        }
+    // Reset Memory Button (Phase 2 Core UI)
+    if (el.btnResetMemory) {
+      el.btnResetMemory.addEventListener('click', handleResetMemory);
+    }
+
+    if (el.btnAuth) {
+      el.btnAuth.addEventListener('click', () => openAuthModal());
+    }
+    if (el.btnCloseAuth) {
+      el.btnCloseAuth.addEventListener('click', () => {
+        if (state.iamRequired && !state.authUser) return;
+        closeAuthModal();
       });
+    }
+    if (el.btnAuthLogin) {
+      el.btnAuthLogin.addEventListener('click', handleAuthLogin);
+    }
+    if (el.btnAuthLogout) {
+      el.btnAuthLogout.addEventListener('click', handleAuthLogout);
+    }
+    if (el.authPassword) {
+      el.authPassword.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') handleAuthLogin();
+      });
+    }
+    if (el.authQuickUsers) {
+      el.authQuickUsers.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('.auth-user-chip');
+        if (!btn) return;
+        const user = btn.getAttribute('data-user') || '';
+        const pass = btn.getAttribute('data-pass') || 'Atin@123#';
+        if (el.authUsername) el.authUsername.value = user;
+        if (el.authPassword) el.authPassword.value = pass;
+        if (el.authError) {
+          el.authError.hidden = true;
+          el.authError.textContent = '';
+        }
+        el.authQuickUsers.querySelectorAll('.auth-user-chip').forEach((c) => c.classList.remove('active'));
+        btn.classList.add('active');
+        if (el.btnAuthLogin) el.btnAuthLogin.focus();
+      });
+    }
+
+    // Sample Questions Accordion Toggle (v2.yaml)
+    const savedAccordionState = localStorage.getItem('agent_sample_accordion_open');
+    if (savedAccordionState === 'true' && el.sampleQuestionsAccordion && el.sampleAccordionHeader) {
+      el.sampleQuestionsAccordion.classList.add('expanded');
+      el.sampleAccordionHeader.setAttribute('aria-expanded', 'true');
+    }
+
+    if (el.sampleAccordionHeader && el.sampleQuestionsAccordion) {
+      el.sampleAccordionHeader.addEventListener('click', () => {
+        const isExpanded = el.sampleQuestionsAccordion.classList.toggle('expanded');
+        el.sampleAccordionHeader.setAttribute('aria-expanded', String(isExpanded));
+        localStorage.setItem('agent_sample_accordion_open', String(isExpanded));
+      });
+    }
+
+    // Domain Chips, Suggestion Cards & Sample Questions (data-query click -> send)
+    document.addEventListener('click', (e) => {
+      const item = e.target.closest('[data-query]');
+      if (!item) return;
+      const query = item.getAttribute('data-query');
+      if (query) {
+        if (state.isGenerating) {
+          showToast('Trợ lý đang phản hồi, vui lòng chờ trong giây lát...', 'warning');
+          return;
+        }
+        if (window.innerWidth <= 768 && el.sidebar && el.sidebar.classList.contains('active')) {
+          el.sidebar.classList.remove('active');
+        }
+        el.questionInput.value = query;
+        adjustTextareaHeight();
+        handleSendMessage();
+      }
     });
 
     // Input Handling
@@ -79,26 +693,87 @@
 
     el.btnSend.addEventListener('click', handleSendMessage);
 
-    // Settings Modal
-    el.btnOpenSettings.addEventListener('click', openSettings);
-    el.btnCloseSettings.addEventListener('click', closeSettings);
-    el.settingsModal.addEventListener('click', e => {
-      if (e.target === el.settingsModal) closeSettings();
+    // Feedback Modal Events (Phase 2 Core UI)
+    if (el.btnCloseFeedback) el.btnCloseFeedback.addEventListener('click', closeFeedbackModal);
+    if (el.btnCancelFeedback) el.btnCancelFeedback.addEventListener('click', closeFeedbackModal);
+    if (el.feedbackModal) {
+      el.feedbackModal.addEventListener('click', (e) => {
+        if (e.target === el.feedbackModal) closeFeedbackModal();
+      });
+    }
+    if (el.btnSubmitFeedback) el.btnSubmitFeedback.addEventListener('click', submitFeedback);
+
+    // Close modal on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (el.feedbackModal && el.feedbackModal.classList.contains('active')) {
+          closeFeedbackModal();
+        }
+      }
     });
 
-    el.btnSaveSettings.addEventListener('click', saveSettings);
-    el.btnCheckHealth.addEventListener('click', checkSystemHealthInModal);
+    // Image Upload Zone Interactions
+    if (el.feedbackUploadZone && el.feedbackFileInput) {
+      el.feedbackUploadZone.addEventListener('click', (e) => {
+        if (e.target.closest('#btn-remove-preview')) return;
+        el.feedbackFileInput.click();
+      });
+      el.feedbackFileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          handleImageFile(e.target.files[0]);
+        }
+      });
+    }
+
+    if (el.btnRemovePreview) {
+      el.btnRemovePreview.addEventListener('click', (e) => {
+        e.stopPropagation();
+        clearFeedbackImage();
+      });
+    }
+
+    // Drag and Drop Image
+    if (el.feedbackUploadZone) {
+      el.feedbackUploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        el.feedbackUploadZone.classList.add('dragover');
+      });
+      el.feedbackUploadZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        el.feedbackUploadZone.classList.remove('dragover');
+      });
+      el.feedbackUploadZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        el.feedbackUploadZone.classList.remove('dragover');
+        if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]) {
+          handleImageFile(e.dataTransfer.files[0]);
+        }
+      });
+    }
+
+    // Clipboard Paste (Ctrl+V) Image Support
+    document.addEventListener('paste', (e) => {
+      if (!el.feedbackModal || !el.feedbackModal.classList.contains('active')) return;
+      const items = (e.clipboardData || window.clipboardData)?.items;
+      if (!items) return;
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type && items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) {
+            handleImageFile(file);
+            showToast('Đã dán ảnh từ clipboard!', 'info');
+            break;
+          }
+        }
+      }
+    });
   }
 
-  function applyStateToUI() {
-    if (state.activeModel === 'self_hosted') {
-      el.sidebarModelLabel.textContent = 'Qwen3-4B (Self-hosted)';
-      if (el.radioSelfHosted) el.radioSelfHosted.checked = true;
-    } else {
-      el.sidebarModelLabel.textContent = 'OpenAI (gpt-4o-mini)';
-      if (el.radioOpenAI) el.radioOpenAI.checked = true;
-    }
-    el.inputApiUrl.value = state.apiBaseUrl;
+  function updateSidebarModelLabel(health) {
+    if (!el.sidebarModelLabel || !health) return;
+    const model = health.active_model || 'N/A';
+    const tag = health.llm_backend === 'self_hosted' ? 'Self-hosted' : 'OpenAI';
+    el.sidebarModelLabel.textContent = `${tag} · ${model}`;
   }
 
   function adjustTextareaHeight() {
@@ -106,14 +781,247 @@
     el.questionInput.style.height = Math.min(el.questionInput.scrollHeight, 160) + 'px';
   }
 
-  function resetChat() {
-    state.messages = [];
-    el.messagesList.innerHTML = '';
-    el.welcomeScreen.style.display = 'block';
-    el.questionInput.value = '';
-    adjustTextareaHeight();
-    el.questionInput.focus();
+  // ==========================================================================
+  // Graph Logic (Phase 5+)
+  // ==========================================================================
+  const IO_MAX_CHARS = 80000;
+  let graphRunId = 0;
+  let hoveredGraphNodeId = null;
+  let pinnedGraphNodeId = null;
+
+  function formatIoValue(val) {
+    if (val === null || val === undefined) return '(empty)';
+    if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (
+        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))
+      ) {
+        try {
+          return JSON.stringify(JSON.parse(trimmed), null, 2);
+        } catch (e) {
+          return val;
+        }
+      }
+      return val;
+    }
+    if (typeof val === 'object') {
+      try {
+        return JSON.stringify(val, null, 2);
+      } catch (e) {
+        return String(val);
+      }
+    }
+    return String(val);
   }
+
+  function truncateIoText(text) {
+    if (text.length <= IO_MAX_CHARS) return text;
+    return text.slice(0, IO_MAX_CHARS) + '\n… (đã cắt — xem Langfuse để full)';
+  }
+
+  function resetGraph() {
+    graphRunId += 1;
+    pinnedGraphNodeId = null;
+    hoveredGraphNodeId = null;
+    if (state.streamAbortController) {
+      state.streamAbortController.abort();
+    }
+    state.streamAbortController = new AbortController();
+    state.streamEventsCount = 0;
+    state.streamStartTime = performance.now();
+    state.nodeStartTimes = {};
+    state.nodeDurations = {};
+    state.lastChart = null;
+    state.lastChartUrl = null;
+    state.lastChartSpec = null;
+    state.lastChartType = null;
+    state.lastChartRows = null;
+    state.lastStreamError = null;
+    state.graphNodes = {};
+    if (el.graphNodes) el.graphNodes.innerHTML = '';
+    if (el.graphPanelHint) {
+      el.graphPanelHint.innerHTML = '<span class="graph-panel-total">⏱️ Đang chạy…</span>';
+    }
+    if (el.graphPlaceholder) {
+      el.graphPlaceholder.classList.remove('hidden');
+      el.graphPlaceholder.textContent = 'Chờ sự kiện node...';
+    }
+    if (el.graphIoEmpty) el.graphIoEmpty.hidden = false;
+    if (el.graphIoBody) {
+      el.graphIoBody.hidden = true;
+      el.graphIoBody.textContent = '';
+    }
+  }
+
+  function formatDurationMs(ms) {
+    if (ms === undefined || ms === null || isNaN(ms)) return '';
+    const n = Number(ms);
+    return (n >= 100 ? Math.round(n) : n.toFixed(1)) + ' ms';
+  }
+
+  function showNodeIo(nodeId) {
+    const activeNodeId = pinnedGraphNodeId || nodeId;
+    const n = state.graphNodes[activeNodeId];
+    if (!n) return;
+
+    document.querySelectorAll('.graph-node').forEach(node => {
+      const isTarget = node.dataset.nodeId === activeNodeId;
+      node.classList.toggle('selected', isTarget);
+      node.classList.toggle('pinned', Boolean(pinnedGraphNodeId && node.dataset.nodeId === pinnedGraphNodeId));
+    });
+    el.graphIoEmpty.hidden = true;
+    el.graphIoBody.hidden = false;
+
+    const isRunning = n.status === 'running';
+    let raw =
+      'node: ' + activeNodeId + (n.status ? ` [${n.status}]` : '') +
+      (pinnedGraphNodeId === activeNodeId ? ' 📌 (đã ghim — click lại để bỏ ghim)' : '') +
+      '\n\ninput:\n' + formatIoValue(n.input) +
+      '\n\noutput:\n' + (isRunning && (n.output === undefined || n.output === null) ? '(đang chạy…)' : formatIoValue(n.output));
+    if (n.durationMs !== undefined && n.durationMs !== null) {
+      raw += `\n\nthời gian thực thi (latency): ${formatDurationMs(n.durationMs)}`;
+    }
+    if (n.meta && typeof n.meta === 'object' && Object.keys(n.meta).length > 0) {
+      raw += '\n\nmeta:\n' + formatIoValue(n.meta);
+    }
+    el.graphIoBody.textContent = truncateIoText(raw);
+  }
+
+  function upsertGraphNode(nodeId, status, input, output, meta, durationMs) {
+    if (el.graphPlaceholder) el.graphPlaceholder.classList.add('hidden');
+    const prev = state.graphNodes[nodeId] || {};
+    
+    let dur = durationMs !== undefined && durationMs !== null ? durationMs : (meta && meta.duration_ms);
+    if (!state.nodeStartTimes) state.nodeStartTimes = {};
+    if (!state.nodeDurations) state.nodeDurations = {};
+
+    if (status === 'running') {
+      state.nodeStartTimes[nodeId] = performance.now();
+    } else if (status === 'done') {
+      if ((dur === undefined || dur === null) && state.nodeStartTimes[nodeId]) {
+        dur = Math.round(performance.now() - state.nodeStartTimes[nodeId]);
+      }
+      if (dur !== undefined && dur !== null) {
+        state.nodeDurations[nodeId] = dur;
+      }
+    }
+
+    const next = {
+      status,
+      durationMs: dur !== undefined && dur !== null ? dur : prev.durationMs,
+      input: status === 'done'
+        ? input
+        : (input !== undefined && input !== null ? input : prev.input),
+      output: status === 'done'
+        ? output
+        : (output !== undefined && output !== null ? output : prev.output),
+      meta: status === 'done'
+        ? (meta !== undefined ? meta : prev.meta)
+        : (meta !== undefined && meta !== null ? meta : prev.meta),
+    };
+    state.graphNodes[nodeId] = next;
+    let card = el.graphNodes.querySelector(`[data-node-id="${nodeId}"]`);
+    if (!card) {
+      card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'graph-node';
+      card.dataset.nodeId = nodeId;
+      card.innerHTML =
+        '<div class="graph-node-header"><span class="graph-node-id"></span><span class="graph-node-time"></span></div><div class="graph-node-status"></div>';
+      card.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (pinnedGraphNodeId === nodeId) {
+          pinnedGraphNodeId = null;
+          showNodeIo(nodeId);
+        } else {
+          pinnedGraphNodeId = nodeId;
+          showNodeIo(nodeId);
+        }
+      });
+      card.addEventListener('mouseenter', () => {
+        hoveredGraphNodeId = nodeId;
+        if (!pinnedGraphNodeId) {
+          showNodeIo(nodeId);
+        }
+      });
+      card.addEventListener('mouseleave', () => {
+        if (hoveredGraphNodeId === nodeId) hoveredGraphNodeId = null;
+      });
+      el.graphNodes.appendChild(card);
+    }
+    let headerEl = card.querySelector('.graph-node-header');
+    let idEl = card.querySelector('.graph-node-id');
+    let timeEl = card.querySelector('.graph-node-time');
+    let statusEl = card.querySelector('.graph-node-status');
+
+    if (!headerEl) {
+      headerEl = document.createElement('div');
+      headerEl.className = 'graph-node-header';
+      idEl = document.createElement('span');
+      idEl.className = 'graph-node-id';
+      timeEl = document.createElement('span');
+      timeEl.className = 'graph-node-time';
+      headerEl.appendChild(idEl);
+      headerEl.appendChild(timeEl);
+      card.insertBefore(headerEl, card.firstChild);
+    } else {
+      if (!idEl) {
+        idEl = document.createElement('span');
+        idEl.className = 'graph-node-id';
+        headerEl.insertBefore(idEl, headerEl.firstChild);
+      }
+      if (!timeEl) {
+        timeEl = document.createElement('span');
+        timeEl.className = 'graph-node-time';
+        headerEl.appendChild(timeEl);
+      }
+    }
+    if (!statusEl) {
+      statusEl = document.createElement('div');
+      statusEl.className = 'graph-node-status';
+      card.appendChild(statusEl);
+    }
+
+    idEl.textContent = nodeId;
+
+    const curDur = next.durationMs;
+    let durLabel = '';
+    if (typeof curDur === 'number' && !isNaN(curDur)) {
+      durLabel = formatDurationMs(curDur);
+    }
+
+    if (timeEl) {
+      if (status === 'running') {
+        timeEl.className = 'graph-node-time running';
+        timeEl.textContent = '…';
+        timeEl.style.display = 'inline-block';
+      } else if (durLabel) {
+        timeEl.className = 'graph-node-time';
+        timeEl.textContent = durLabel;
+        timeEl.style.display = 'inline-block';
+      } else {
+        timeEl.textContent = '';
+        timeEl.style.display = 'none';
+      }
+    }
+
+    statusEl.textContent =
+      status === 'running'
+        ? 'đang chạy…'
+        : (durLabel ? `xong (${durLabel}) — trỏ hoặc bấm để xem I/O` : 'xong — trỏ hoặc bấm để xem I/O');
+
+    if (status === 'done') {
+      if (pinnedGraphNodeId) {
+        if (nodeId === pinnedGraphNodeId) {
+          showNodeIo(nodeId);
+        }
+      } else if (hoveredGraphNodeId === nodeId) {
+        showNodeIo(nodeId);
+      }
+    }
+  }
+
 
   // ==========================================================================
   // Markdown & Message Rendering
@@ -186,7 +1094,467 @@
       .replace(/'/g, '&#039;');
   }
 
-  function appendMessage(role, content, detail) {
+  // ==========================================================================
+  // Chart.js rendering helper & Vietnamese localization
+  // ==========================================================================
+
+  /** Vietnamese translation map for categorical chart values */
+  const CHART_VI_LABELS = {
+    'CAR': 'Ô tô',
+    'MOTORCYCLE': 'Xe máy',
+    'MOTORBIKE': 'Xe máy',
+    'TRUCK': 'Xe tải',
+    'BUS': 'Xe buýt',
+    'IN': 'Vào',
+    'OUT': 'Ra',
+    'FIRE': 'Cháy',
+    'SMOKE': 'Khói',
+    'HIGH': 'Cao',
+    'MEDIUM': 'Trung bình',
+    'LOW': 'Thấp',
+    'FIGHT_DETECTION': 'Ẩu đả',
+    'CROWD_DETECTION': 'Đám đông',
+    'INTRUSION_DETECTION': 'Xâm nhập',
+    'WATER_LEVEL_DETECTION': 'Mực nước',
+    'SIDEWALK_ENCROACHMENT': 'Lấn chiếm vỉa hè',
+    'TRAFFIC_JAM': 'Ùn tắc giao thông',
+    'UNKNOWN': 'Không xác định',
+    'OTHER': 'Khác',
+  };
+
+  /** Vietnamese translation map for common numeric columns and group-by dimensions */
+  const CHART_VI_COLUMNS = {
+    'count': 'Số lượng',
+    'total': 'Tổng số',
+    'so_luot': 'Số lượt',
+    'so_luong': 'Số lượng',
+    'event_count': 'Số sự kiện',
+    'plate_count': 'Số lượt xe',
+    'sum': 'Tổng cộng',
+    'value': 'Giá trị',
+    'n': 'Số lượng',
+    'vehicle_type': 'Loại xe',
+    'direction': 'Hướng di chuyển',
+    'manufacturer': 'Hãng xe',
+    'event_type': 'Loại sự kiện',
+    'severity': 'Mức độ',
+    'alert_level': 'Mức cảnh báo',
+    'zone_name': 'Khu vực',
+    'camera_name': 'Camera',
+    'department_name': 'Phòng ban',
+  };
+
+  /**
+   * Format categorical label to human-friendly Vietnamese.
+   * @param {*} val
+   * @returns {string}
+   */
+  function formatChartLabel(val) {
+    if (val === null || val === undefined || val === '') return '(trống)';
+    const str = String(val).trim();
+    const upper = str.toUpperCase();
+    if (CHART_VI_LABELS[upper]) {
+      return CHART_VI_LABELS[upper];
+    }
+    if (str.length > 24) {
+      return str.slice(0, 21) + '…';
+    }
+    return str;
+  }
+
+  /**
+   * Format column header to friendly Vietnamese label.
+   * @param {string} col
+   * @returns {string}
+   */
+  function formatChartColumn(col) {
+    if (!col) return 'Số lượng';
+    const lower = String(col).toLowerCase().trim();
+    if (CHART_VI_COLUMNS[lower]) return CHART_VI_COLUMNS[lower];
+    if (lower.includes('count') || lower.includes('so_luong') || lower.includes('so_luot')) return 'Số lượng';
+    return col;
+  }
+
+  /** WeakMap to track Chart.js instances keyed by canvas element */
+  const _chartInstances = new WeakMap();
+
+  /**
+   * Render an interactive Chart.js bar or pie chart inside containerEl.
+   * Polish bar chart: title rõ, nhãn tiếng Việt, màu sắc tương phản cao, chống méo / blank.
+   * @param {HTMLElement} containerEl  - the .chart-slot element
+   * @param {{ chartType: string, chartSpec: Object, rows: Array }} opts
+   */
+  function renderChartJs(containerEl, { chartType, chartSpec, rows }) {
+    if (typeof Chart === 'undefined') return;
+    if (!Array.isArray(rows) || rows.length === 0) return;
+    if (!chartSpec || !chartSpec.x_column || !chartSpec.y_column) return;
+
+    const xCol = chartSpec.x_column;
+    const yCol = chartSpec.y_column;
+    const rawTitle = chartSpec.title_vi || '';
+    const title = rawTitle.trim() || `Biểu đồ thống kê theo ${formatChartColumn(xCol)}`;
+
+    const labels = rows.map(r => formatChartLabel(r[xCol]));
+    const values = rows.map(r => {
+      const v = r[yCol];
+      return (v !== undefined && v !== null && !isNaN(Number(v))) ? Number(v) : 0;
+    });
+
+    const type = (chartType === 'pie') ? 'pie' : 'bar';
+
+    // Curated high-contrast palette: duy pine-teal (#1f5c4f) leading, with warm theme accents
+    const palette = [
+      '#1f5c4f', // Deep pine teal (duy pattern)
+      '#c2410c', // Terracotta orange (theme warm)
+      '#2563eb', // Vivid royal blue
+      '#d97706', // Warm amber
+      '#7c3aed', // Rich violet
+      '#059669', // Emerald green
+      '#dc2626', // Crimson red
+      '#0891b2', // Ocean cyan
+      '#4f46e5', // Deep indigo
+      '#ea580c', // Bright orange
+    ];
+    const colors = values.map((_, i) => palette[i % palette.length]);
+
+    // Clear previous content and wrap canvas in responsive container to prevent distortion
+    containerEl.innerHTML = '';
+    const wrapper = document.createElement('div');
+    wrapper.className = 'chart-canvas-wrapper';
+
+    const canvas = document.createElement('canvas');
+    canvas.setAttribute('aria-label', title || 'Biểu đồ');
+    canvas.setAttribute('role', 'img');
+    wrapper.appendChild(canvas);
+    containerEl.appendChild(wrapper);
+
+    // Destroy existing Chart instance on this canvas if any
+    if (_chartInstances.has(canvas)) {
+      _chartInstances.get(canvas).destroy();
+    }
+
+    const colLabel = formatChartColumn(yCol);
+    const dataset = {
+      label: colLabel,
+      data: values,
+      backgroundColor: colors.map(c => c + 'd9'), // ~85% opacity
+    };
+
+    if (type === 'bar') {
+      dataset.borderColor = colors;
+      dataset.borderWidth = 1.5;
+      dataset.borderRadius = 6;
+      dataset.borderSkipped = false;
+      dataset.maxBarThickness = 48;
+    } else if (type === 'pie') {
+      dataset.borderColor = '#ffffff';
+      dataset.borderWidth = 2;
+    }
+
+    const totalValue = values.reduce((sum, v) => sum + (Number(v) || 0), 0);
+
+    const config = {
+      type,
+      data: { labels, datasets: [dataset] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: type === 'pie',
+            position: 'bottom',
+            labels: {
+              color: '#2a2824',
+              padding: 12,
+              boxWidth: 14,
+              boxHeight: 14,
+              font: {
+                family: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+                size: 12,
+              },
+              generateLabels: (chart) => {
+                const datasets = chart.data.datasets;
+                if (!datasets.length) return [];
+                const ds = datasets[0];
+                const data = ds.data || [];
+                const total = data.reduce((acc, v) => acc + (Number(v) || 0), 0);
+                return (chart.data.labels || []).map((label, i) => {
+                  const val = Number(data[i]) || 0;
+                  const pct = total > 0 ? ((val / total) * 100).toFixed(1).replace(/\.0$/, '') : '0';
+                  const text = `${label}: ${pct}%`;
+                  const fill = Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor;
+                  const stroke = Array.isArray(ds.borderColor) ? ds.borderColor[i] : ds.borderColor;
+                  return {
+                    text,
+                    fillStyle: fill,
+                    strokeStyle: stroke || fill,
+                    lineWidth: 1,
+                    hidden: !chart.getDataVisibility(i),
+                    index: i,
+                  };
+                });
+              },
+            },
+          },
+          title: {
+            display: Boolean(title),
+            text: title,
+            color: '#1c1b18',
+            font: {
+              family: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif",
+              size: 13,
+              weight: '600',
+            },
+            padding: { top: 4, bottom: 12 },
+          },
+          tooltip: {
+            backgroundColor: 'rgba(28, 27, 24, 0.92)',
+            titleColor: '#ffffff',
+            bodyColor: '#ffffff',
+            titleFont: { size: 12, weight: '600' },
+            bodyFont: { size: 12 },
+            padding: { top: 6, bottom: 6, left: 10, right: 10 },
+            cornerRadius: 6,
+            displayColors: true,
+            callbacks: {
+              label: (context) => {
+                const val = context.parsed.y !== undefined ? context.parsed.y : context.parsed;
+                const num = Number(val) || 0;
+                if (type === 'pie') {
+                  const pct = totalValue > 0 ? ((num / totalValue) * 100).toFixed(1).replace(/\.0$/, '') : '0';
+                  return ` ${colLabel}: ${num.toLocaleString('vi-VN')} (${pct}%)`;
+                }
+                return ` ${colLabel}: ${num.toLocaleString('vi-VN')}`;
+              },
+            },
+          },
+        },
+      },
+    };
+
+    // Specific scale configuration for bar chart: clean ticks, integer precision, beginAtZero
+    if (type === 'bar') {
+      const maxVal = values.length ? Math.max(...values) : 0;
+      config.options.scales = {
+        x: {
+          grid: { display: false },
+          ticks: {
+            color: '#636159',
+            font: { family: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif", size: 11 },
+            maxRotation: 35,
+            minRotation: 0,
+            autoSkip: true,
+          },
+        },
+        y: {
+          beginAtZero: true,
+          suggestedMax: maxVal > 0 ? Math.ceil(maxVal * 1.15) : 5,
+          grid: {
+            color: 'rgba(229, 228, 220, 0.6)',
+          },
+          ticks: {
+            color: '#636159',
+            font: { family: "'Plus Jakarta Sans', system-ui, -apple-system, sans-serif", size: 11 },
+            precision: 0,
+            callback: (val) => Number(val).toLocaleString('vi-VN'),
+          },
+        },
+      };
+    }
+
+    const instance = new Chart(canvas, config);
+    _chartInstances.set(canvas, instance);
+  }
+
+  function appendToolAccordion(contentDiv, detail, prepend = false) {
+    if (!detail) return;
+    const hasToolStr = typeof detail.tool === 'string' && detail.tool.trim() !== '';
+    const hasToolsArr = Array.isArray(detail.tools_used) && detail.tools_used.length > 0;
+    const hasRowCount = (typeof detail.row_count === 'number' && detail.row_count > 0) || (typeof detail.rows_count === 'number' && detail.rows_count > 0);
+    const hasCols = Array.isArray(detail.columns) && detail.columns.length > 0;
+    const hasRealMetadata = hasToolStr || hasToolsArr || hasRowCount || hasCols;
+    if (!hasRealMetadata) return;
+
+    const accordion = document.createElement('details');
+    accordion.className = 'tool-accordion';
+    
+    const summary = document.createElement('summary');
+    summary.className = 'tool-accordion-summary';
+    
+    const toolName = detail.tool || (detail.tools_used ? detail.tools_used.join(', ') : 'Database Query');
+    summary.innerHTML = `
+      <div class="tool-summary-left">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <span>Công cụ đã gọi:</span>
+        <span class="tool-badge">${escapeHtml(toolName)}</span>
+      </div>
+      <span style="font-size: 0.75rem;">Chi tiết ▼</span>
+    `;
+
+    const detailContent = document.createElement('div');
+    detailContent.className = 'tool-accordion-content';
+    detailContent.textContent = JSON.stringify(detail, null, 2);
+
+    accordion.appendChild(summary);
+    accordion.appendChild(detailContent);
+
+    if (prepend && contentDiv.firstChild) {
+      contentDiv.insertBefore(accordion, contentDiv.firstChild);
+    } else {
+      contentDiv.appendChild(accordion);
+    }
+  }
+
+  function appendChartSlot(contentDiv, chartPayload) {
+    if (!chartPayload) return;
+    let chartObj = null;
+    if (typeof chartPayload === 'object') {
+      chartObj = chartPayload;
+    } else if (typeof chartPayload === 'string' && chartPayload.trim().length > 0) {
+      chartObj = { png: chartPayload.trim() };
+    }
+    if (!chartObj) return;
+
+    const chartSpec = chartObj.spec || null;
+    const chartRows = chartObj.rows || null;
+    const chartType = chartObj.type || 'bar';
+    const chartPng = chartObj.png || null;
+    const chartUrl = chartObj.url || chartObj.chart_url || null;
+
+    const hasChartJsData = Boolean(
+      chartSpec &&
+      Array.isArray(chartRows) &&
+      chartRows.length > 0 &&
+      typeof Chart !== 'undefined'
+    );
+
+    const chartSlot = document.createElement('div');
+    chartSlot.className = 'chart-slot';
+
+    if (hasChartJsData) {
+      renderChartJs(chartSlot, { chartType, chartSpec, rows: chartRows });
+      contentDiv.appendChild(chartSlot);
+    } else if (chartUrl) {
+      chartSlot.innerHTML = `<img src="${chartUrl}" alt="Biểu đồ" style="max-width:100%; border-radius:8px; display:block; margin:0 auto;">`;
+      contentDiv.appendChild(chartSlot);
+    } else if (chartPng) {
+      chartSlot.innerHTML = `<img src="data:image/png;base64,${chartPng}" alt="Biểu đồ" style="max-width:100%; border-radius:8px; display:block; margin:0 auto;">`;
+      contentDiv.appendChild(chartSlot);
+    } else if (chartSpec || chartObj.type || (Array.isArray(chartRows) && chartRows.length === 0) || chartObj.empty) {
+      chartSlot.classList.add('chart-slot-empty');
+      chartSlot.innerHTML = `
+        <div class="chart-placeholder chart-empty-state">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="10" r="10"></circle>
+            <line x1="12" y1="8" x2="12" y2="12"></line>
+            <line x1="12" y1="16" x2="12.01" y2="16"></line>
+          </svg>
+          <span>Chưa có dữ liệu để hiển thị biểu đồ</span>
+        </div>
+      `;
+      contentDiv.appendChild(chartSlot);
+    }
+  }
+
+  function extractSqlFromTraceNodes(nodes) {
+    if (!Array.isArray(nodes)) return null;
+    for (let i = nodes.length - 1; i >= 0; i -= 1) {
+      const node = nodes[i];
+      const nodeId = node && node.node_id;
+      if (!nodeId || !['generate_sql', 'validate_sql', 'execute_sql', 'repair_sql'].includes(nodeId)) continue;
+      const output = node.output;
+      if (output && typeof output.sql === 'string' && output.sql.trim()) {
+        return output.sql.trim();
+      }
+    }
+    return null;
+  }
+
+  function buildAgentTrace(nodes, detail) {
+    const trace = { nodes: Array.isArray(nodes) ? nodes.slice() : [] };
+    if (detail) {
+      trace.detail = detail.agent_detail || detail.tool || detail;
+    }
+    const sql = extractSqlFromTraceNodes(trace.nodes);
+    if (sql) trace.sql = sql;
+    return trace;
+  }
+
+  function createMessageActionsBar(content, detail, storedTrace) {
+    const actionsBar = document.createElement('div');
+    actionsBar.className = 'message-actions-bar';
+
+    const likeBtn = document.createElement('button');
+    likeBtn.type = 'button';
+    likeBtn.className = 'btn-feedback btn-feedback-like';
+    likeBtn.title = 'Đánh giá câu trả lời tốt';
+    likeBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+      <span>Hài lòng</span>
+    `;
+
+    const dislikeBtn = document.createElement('button');
+    dislikeBtn.type = 'button';
+    dislikeBtn.className = 'btn-feedback btn-feedback-dislike';
+    dislikeBtn.title = 'Đánh giá câu trả lời chưa đúng';
+    dislikeBtn.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h3a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-3"/></svg>
+      <span>Chưa đúng</span>
+    `;
+
+    const agentTrace = storedTrace || buildAgentTrace(state.lastAgentTrace || [], detail);
+
+    const messageContext = {
+      question: state.lastQuestion || '',
+      answer: content,
+      detail: detail || null,
+      agent_trace: agentTrace,
+      sessionId: state.activeSessionId,
+      userId: state.userId,
+      likeBtn,
+      dislikeBtn,
+    };
+
+    likeBtn.addEventListener('click', () => {
+      handleLikeClick(messageContext);
+    });
+
+    dislikeBtn.addEventListener('click', () => {
+      handleDislikeClick(messageContext);
+    });
+
+    actionsBar.appendChild(likeBtn);
+    actionsBar.appendChild(dislikeBtn);
+    return actionsBar;
+  }
+
+  function appendRetryButton(contentDiv, question) {
+    if (!contentDiv || !question) return;
+    const retryContainer = document.createElement('div');
+    retryContainer.className = 'retry-action-wrapper';
+    const retryBtn = document.createElement('button');
+    retryBtn.type = 'button';
+    retryBtn.className = 'btn-retry-stream';
+    retryBtn.title = 'Bấm để thử lại câu hỏi này';
+    retryBtn.innerHTML = `
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="23 4 23 10 17 10"></polyline>
+        <polyline points="1 20 1 14 7 14"></polyline>
+        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+      </svg>
+      <span>Thử lại</span>
+    `;
+    const targetQ = question;
+    retryBtn.addEventListener('click', () => {
+      if (state.isGenerating) return;
+      if (el.questionInput) el.questionInput.value = targetQ;
+      handleSendMessage();
+    });
+    retryContainer.appendChild(retryBtn);
+    contentDiv.appendChild(retryContainer);
+  }
+
+  function appendMessage(role, content, detail, chartPayload, agentTrace) {
     el.welcomeScreen.style.display = 'none';
 
     const item = document.createElement('div');
@@ -199,38 +1567,51 @@
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
 
-    // Tool Execution Accordion if detail is present
-    if (detail && (detail.tool || detail.tools_used || detail.rows_count !== undefined)) {
-      const accordion = document.createElement('details');
-      accordion.className = 'tool-accordion';
-      
-      const summary = document.createElement('summary');
-      summary.className = 'tool-accordion-summary';
-      
-      const toolName = detail.tool || (detail.tools_used ? detail.tools_used.join(', ') : 'Database Query');
-      summary.innerHTML = `
-        <div class="tool-summary-left">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          <span>Công cụ đã gọi:</span>
-          <span class="tool-badge">${escapeHtml(toolName)}</span>
-        </div>
-        <span style="font-size: 0.75rem;">Chi tiết ▼</span>
-      `;
+    // Cache Hit Badge if response came from TTL Cache (Phase 2 & Phase 4)
+    const isCacheHit = role === 'assistant' && detail && (
+      detail.cache_hit === true ||
+      detail.cached === true ||
+      detail.route === 'cache' ||
+      (detail.meta && detail.meta.cache_hit === true) ||
+      (detail.detail && detail.detail.cache_hit === true)
+    );
+    if (isCacheHit) {
+      const cacheBadge = document.createElement('div');
+      cacheBadge.className = 'badge-cache-hit';
+      cacheBadge.innerHTML = '⚡ Cache Hit';
+      cacheBadge.title = 'Phản hồi tức thì từ bộ đệm TTL Cache (≤5ms)';
+      contentDiv.appendChild(cacheBadge);
+    }
 
-      const detailContent = document.createElement('div');
-      detailContent.className = 'tool-accordion-content';
-      detailContent.textContent = JSON.stringify(detail, null, 2);
-
-      accordion.appendChild(summary);
-      accordion.appendChild(detailContent);
-      contentDiv.appendChild(accordion);
+    // Tool Execution Accordion if detail has real metadata
+    if (role === 'assistant') {
+      appendToolAccordion(contentDiv, detail);
     }
 
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    bubble.innerHTML = parseMarkdown(content);
-
+    const bubbleText = document.createElement('div');
+    bubbleText.className = 'bubble-text';
+    bubbleText.innerHTML = parseMarkdown(content);
+    bubble.appendChild(bubbleText);
     contentDiv.appendChild(bubble);
+
+    // Chart rendering in assistant messages: only render when chartPayload is present
+    if (role === 'assistant' && chartPayload) {
+      appendChartSlot(contentDiv, chartPayload);
+    }
+
+    // Human Feedback Action Bar for assistant messages (Phase 4 Connect UI to Data)
+    if (role === 'assistant') {
+      const actionsBar = createMessageActionsBar(content, detail, agentTrace);
+      contentDiv.appendChild(actionsBar);
+    }
+
+    // Retry button if message is an error/warning
+    if (role === 'assistant' && typeof content === 'string' && content.startsWith('⚠️')) {
+      appendRetryButton(contentDiv, state.lastQuestion);
+    }
+
     item.appendChild(avatar);
     item.appendChild(contentDiv);
 
@@ -274,66 +1655,436 @@
   // API Communication
   // ==========================================================================
   function getApiEndpoint(path) {
-    const base = state.apiBaseUrl.replace(/\/+$/, '');
-    return base ? `${base}${path}` : path;
+    return path;
+  }
+
+  function apiFetch(pathOrUrl, options = {}) {
+    const url = typeof pathOrUrl === 'string' && pathOrUrl.startsWith('http')
+      ? pathOrUrl
+      : getApiEndpoint(pathOrUrl);
+    const opts = { ...options };
+    const headers = { ...(opts.headers || {}) };
+    const accessKey = localStorage.getItem('agent_api_access_key');
+    if (accessKey) headers['X-API-Key'] = accessKey;
+    // v18 IAM: Bearer + org (token từ localStorage / query ?access_token=)
+    const bearer =
+      localStorage.getItem('agent_access_token') ||
+      localStorage.getItem('access_token') ||
+      sessionStorage.getItem('access_token') ||
+      sessionStorage.getItem('auth_access_token_memory') ||
+      '';
+    if (bearer && !headers['Authorization']) {
+      headers['Authorization'] = bearer.startsWith('Bearer ') ? bearer : `Bearer ${bearer}`;
+    }
+    const orgId =
+      localStorage.getItem('agent_organization_id') ||
+      localStorage.getItem('organization_id') ||
+      localStorage.getItem('company_id') ||
+      '';
+    if (orgId && !headers['X-Organization-Id']) {
+      headers['X-Organization-Id'] = String(orgId);
+    }
+    opts.headers = headers;
+    return fetch(url, opts);
   }
 
   async function handleSendMessage() {
     const question = el.questionInput.value.trim();
     if (!question || state.isGenerating) return;
 
+    if (state.iamRequired && !getAccessToken()) {
+      openAuthModal('Cần đăng nhập IAM trước khi gửi câu hỏi.');
+      showToast('Đăng nhập để hỏi theo phân quyền bộ phận', 'error');
+      return;
+    }
+
+    state.lastQuestion = question;
+    state.lastAgentTrace = [];
+
+    let sess = state.sessions.find(s => s.id === state.activeSessionId);
+    if (!sess) {
+      await createNewSession();
+      sess = state.sessions[0];
+    }
+    if (!sess) return;
+
     state.isGenerating = true;
     el.btnSend.disabled = true;
     el.questionInput.value = '';
     adjustTextareaHeight();
+    if (el.welcomeScreen) el.welcomeScreen.style.display = 'none';
+
+    const now = new Date().toISOString();
+    const userMsg = {
+      role: 'user',
+      content: question,
+      timestamp: now,
+    };
+    if (!Array.isArray(sess.messages)) sess.messages = [];
+    sess.messages.push(userMsg);
+    sess.updated_at = now;
+    sess.updatedAt = now;
+    sess.preview = question;
+
+    if (sess.title === 'Phiên chat mới' || sess.messages.filter(m => m.role === 'user').length === 1) {
+      sess.title = question.length > 32 ? question.slice(0, 32) + '…' : question;
+    }
+
+    const sessIdx = state.sessions.findIndex(s => s.id === sess.id);
+    if (sessIdx > 0) {
+      state.sessions.splice(sessIdx, 1);
+      state.sessions.unshift(sess);
+    }
+    renderSessionList();
 
     appendMessage('user', question);
     showThinkingIndicator();
+    
+    // Subscribe to SSE
+    resetGraph();
+    const currentRunId = graphRunId;
+    const currentSessionId = sess.id;
 
-    try {
-      // Try /api/chat or fallback to /ask
-      const url = getApiEndpoint('/api/chat');
-      const payload = {
+    apiFetch('/api/agent/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         question: question,
-        model_provider: state.activeModel,
-      };
+        session_id: state.activeSessionId,
+        user_id: state.userId,
+        stream_tokens: true,
+      }),
+      signal: state.streamAbortController.signal
+    }).then(async (res) => {
+      if (currentRunId !== graphRunId) return;
 
-      let response;
-      try {
-        response = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-      } catch (err) {
-        // Fallback to /ask endpoint for backward compatibility
-        const fallbackUrl = getApiEndpoint('/ask');
-        response = await fetch(fallbackUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ question: question }),
-        });
+      if (!res.ok) {
+        let errText = '⚠️ **Lỗi kết nối**: Không thể kết nối tới backend/API. Vui lòng kiểm tra lại hệ thống.';
+        try {
+          const errData = await res.json();
+          if (res.status === 401 || res.status === 403) {
+            clearAuthSession();
+            openAuthModal(errData.detail || 'Phiên đăng nhập hết hạn hoặc không đủ quyền.');
+            errText = errData.detail || 'Cần đăng nhập lại (IAM).';
+          } else if (res.status === 400 && (errData.detail || errData.reason)) {
+            errText = errData.detail || errData.reason;
+          } else if (errData.detail) {
+            errText = errData.detail;
+          }
+        } catch (e) {}
+        const errObj = new Error(errText);
+        errObj.isCustomMsg = true;
+        throw errObj;
       }
+      if (!res.body) return;
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder('utf-8');
+      let buffer = '';
+      let hasAnswer = false;
+      let streamingItem = null;
+      let streamingContentDiv = null;
+      let streamingBubbleText = null;
+      let streamedText = '';
 
-      removeThinkingIndicator();
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // keep the incomplete line in buffer
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6).trim();
+            if (!dataStr || dataStr === '[DONE]') continue;
+            try {
+              const event = JSON.parse(dataStr);
+              // v16 SSE: node/complete/token (+ legacy node_id bridge)
+              if (event.node && !event.node_id) event.node_id = event.node;
+              if (event.token && !event.node_id) {
+                event.node_id = '__answer__';
+                event.status = 'chunk';
+                event.delta = event.token;
+                event.output = event.token;
+              }
+              if (event.complete === true) {
+                event.node_id = event.node_id || '__answer__';
+                event.status = event.status || 'done';
+                event.output = event.output || event.answer || '';
+              }
+              if (event.error && !event.node_id) {
+                event.node_id = 'error';
+                event.status = 'done';
+                event.output = event.error;
+              }
+              if (!event.node_id || !event.status) continue;
+              
+              if (event.chart_url) {
+                state.lastChartUrl = event.chart_url;
+              }
+              if (event.chart_png_base64) {
+                state.lastChart = event.chart_png_base64;
+              }
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ detail: 'Lỗi máy chủ' }));
-        appendMessage('assistant', `⚠️ **Lỗi**: ${errorData.detail || 'Không thể lấy dữ liệu từ máy chủ.'}`);
-      } else {
-        const data = await response.json();
-        const answer = data.answer || 'Không có câu trả lời.';
-        const detail = data.detail || (data.tool ? { tool: data.tool } : null);
-        appendMessage('assistant', answer, detail);
+              // Dedicated __chart__ event — update chart state
+              if (event.node_id === '__chart__') {
+                state.lastChartUrl = event.chart_url || state.lastChartUrl || null;
+                state.lastChart = event.chart_png_base64 || state.lastChart || null;
+                state.lastChartSpec = event.chart_spec || null;
+                state.lastChartType = event.chart_type || null;
+                state.lastChartRows = Array.isArray(event.chart_rows) ? event.chart_rows : null;
+                continue;
+              }
+
+              if (event.node_id && event.node_id !== '__answer__' && event.node_id !== '__chart__') {
+                state.lastAgentTrace.push({
+                  node_id: event.node_id,
+                  status: event.status,
+                  input: event.input,
+                  output: event.output,
+                  meta: event.meta,
+                  duration_ms: event.duration_ms
+                });
+              }
+
+              if (event.node_id === 'error') {
+                state.lastStreamError = event.output || 'Đã xảy ra lỗi.';
+              }
+
+              // Live Chunk Streaming Event
+              if (event.node_id === '__answer__' && event.status === 'chunk') {
+                if (currentRunId !== graphRunId) return;
+                hasAnswer = true;
+                removeThinkingIndicator();
+
+                if (!streamingItem) {
+                  el.welcomeScreen.style.display = 'none';
+                  streamingItem = document.createElement('div');
+                  streamingItem.className = 'message-item assistant';
+
+                  const avatar = document.createElement('div');
+                  avatar.className = 'message-avatar';
+                  avatar.textContent = 'AI';
+
+                  streamingContentDiv = document.createElement('div');
+                  streamingContentDiv.className = 'message-content';
+
+                  const bubble = document.createElement('div');
+                  bubble.className = 'message-bubble';
+                  streamingBubbleText = document.createElement('div');
+                  streamingBubbleText.className = 'bubble-text';
+                  bubble.appendChild(streamingBubbleText);
+                  streamingContentDiv.appendChild(bubble);
+
+                  streamingItem.appendChild(avatar);
+                  streamingItem.appendChild(streamingContentDiv);
+                  el.messagesList.appendChild(streamingItem);
+                }
+
+                streamedText += (event.delta || '');
+                streamingBubbleText.innerHTML = parseMarkdown(streamedText);
+                scrollToBottom();
+                continue;
+              }
+
+              // Stream Completion Event
+              if (event.node_id === '__answer__') {
+                if (currentRunId !== graphRunId) return;
+                hasAnswer = true;
+                removeThinkingIndicator();
+
+                const isError = event.status === 'error' ||
+                  (event.detail && event.detail.status === 'error');
+                let answerText = event.output || streamedText || 'Không có câu trả lời.';
+                if (isError) {
+                  state.lastStreamError = answerText;
+                  if (!answerText.startsWith('⚠️')) {
+                    answerText = '⚠️ ' + answerText;
+                  }
+                }
+                // Build full chart payload object (prefer rows from detail if available)
+                const detailRows = event.detail && Array.isArray(event.detail.chart_rows) ? event.detail.chart_rows : null;
+                const chartPayload = (state.lastChart || state.lastChartUrl || state.lastChartSpec) ? {
+                  png: state.lastChart || null,
+                  url: state.lastChartUrl || (event.detail && event.detail.chart_url) || null,
+                  spec: state.lastChartSpec || (event.detail && event.detail.chart_spec) || null,
+                  type: state.lastChartType || (event.detail && event.detail.chart_type) || 'bar',
+                  rows: detailRows || state.lastChartRows || null,
+                } : null;
+                state.lastChart = null;
+                state.lastChartUrl = null;
+                state.lastChartSpec = null;
+                state.lastChartType = null;
+                state.lastChartRows = null;
+
+                const agentTrace = (event.detail && event.detail.agent_trace)
+                  || buildAgentTrace(state.lastAgentTrace || [], event.detail);
+
+                const targetSession = state.sessions.find(item => item.id === currentSessionId);
+                if (targetSession) {
+                  if (!Array.isArray(targetSession.messages)) targetSession.messages = [];
+                  targetSession.messages.push({
+                    role: 'assistant',
+                    content: answerText,
+                    detail: event.detail,
+                    chart: chartPayload,
+                    agent_trace: agentTrace,
+                    timestamp: new Date().toISOString()
+                  });
+                  const now = new Date().toISOString();
+                  targetSession.updated_at = now;
+                  targetSession.updatedAt = now;
+                  const cleanPreview = answerText.replace(/[\n\r#*`]/g, ' ').replace(/\s+/g, ' ').trim();
+                  targetSession.preview = cleanPreview.length > 45 ? cleanPreview.slice(0, 45) + '…' : cleanPreview;
+                  renderSessionList();
+                }
+                
+                if (state.streamStartTime && el.graphPanelHint) {
+                  const totalMs = Math.round(performance.now() - state.streamStartTime);
+                  el.graphPanelHint.innerHTML = '<span class="graph-panel-total">⏱️ Tổng: ' + formatDurationMs(totalMs) + '</span>';
+                }
+
+                // Mở khóa UI ngay lập tức khi câu trả lời hoàn tất, không bắt người dùng phải đợi store_extract
+                state.isGenerating = false;
+                el.btnSend.disabled = false;
+                el.questionInput.focus();
+
+                if (streamingContentDiv && streamingBubbleText) {
+                  const isCacheHit = event.detail && (
+                    event.detail.cache_hit === true ||
+                    event.detail.cached === true ||
+                    event.detail.route === 'cache' ||
+                    (event.detail.meta && event.detail.meta.cache_hit === true) ||
+                    (event.detail.detail && event.detail.detail.cache_hit === true)
+                  );
+                  if (isCacheHit && !streamingContentDiv.querySelector('.badge-cache-hit')) {
+                    const cacheBadge = document.createElement('div');
+                    cacheBadge.className = 'badge-cache-hit';
+                    cacheBadge.innerHTML = '⚡ Cache Hit';
+                    cacheBadge.title = 'Phản hồi tức thì từ bộ đệm TTL Cache (≤5ms)';
+                    streamingContentDiv.insertBefore(cacheBadge, streamingContentDiv.firstChild);
+                  }
+                  streamingBubbleText.innerHTML = parseMarkdown(answerText);
+                  if (event.detail) {
+                    appendToolAccordion(streamingContentDiv, event.detail, true);
+                  }
+                  if (chartPayload) {
+                    appendChartSlot(streamingContentDiv, chartPayload);
+                  }
+                  const actionsBar = createMessageActionsBar(answerText, event.detail, agentTrace);
+                  streamingContentDiv.appendChild(actionsBar);
+                  scrollToBottom();
+
+                  streamingItem = null;
+                  streamingContentDiv = null;
+                  streamingBubbleText = null;
+                  streamedText = '';
+                } else {
+                  appendMessage('assistant', answerText, event.detail, chartPayload, agentTrace);
+                }
+                continue;
+              }
+
+              upsertGraphNode(
+                event.node_id,
+                event.status,
+                event.input,
+                event.output,
+                event.meta,
+                event.duration_ms
+              );
+              state.streamEventsCount++;
+
+              if (
+                (event.node_id === 'store_extract' ||
+                  event.node_id === 'extract_memory' ||
+                  event.node_id === 'extract_memory_node') &&
+                event.status === 'done'
+              ) {
+                if (event.meta && typeof event.meta.facts_count === 'number') {
+                  updateMemoryStatus(event.meta.facts_count);
+                } else {
+                  fetchUserMemoryStatus();
+                }
+              }
+            } catch (e) {
+              console.error("Parse SSE data error", e);
+            }
+          }
+        }
+
       }
-    } catch (error) {
+      if (!hasAnswer && currentRunId === graphRunId) {
+        removeThinkingIndicator();
+        const fallbackText = state.lastStreamError
+          ? ('⚠️ ' + state.lastStreamError)
+          : '⚠️ Xin lỗi, đã xảy ra lỗi trong quá trình xử lý. Vui lòng thử lại.';
+        state.lastStreamError = null;
+        const targetSession = state.sessions.find(item => item.id === currentSessionId);
+        if (targetSession) {
+          if (!Array.isArray(targetSession.messages)) targetSession.messages = [];
+          targetSession.messages.push({
+            role: 'assistant',
+            content: fallbackText,
+            timestamp: new Date().toISOString()
+          });
+          const now = new Date().toISOString();
+          targetSession.updated_at = now;
+          targetSession.updatedAt = now;
+          targetSession.preview = fallbackText;
+          renderSessionList();
+        }
+        if (streamingContentDiv && streamingBubbleText) {
+          streamingBubbleText.innerHTML = parseMarkdown(fallbackText);
+          appendRetryButton(streamingContentDiv, state.lastQuestion);
+          streamingItem = null;
+          streamingContentDiv = null;
+          streamingBubbleText = null;
+          streamedText = '';
+        } else {
+          appendMessage('assistant', fallbackText);
+        }
+        scrollToBottom();
+      }
+    }).catch(err => {
+      if (currentRunId !== graphRunId) return;
+      if (err.name === 'AbortError') {
+        removeThinkingIndicator();
+        return;
+      }
+      
       removeThinkingIndicator();
-      appendMessage('assistant', `⚠️ **Lỗi kết nối**: Không thể kết nối tới Backend tại \`${getApiEndpoint('/')}\`. Vui lòng kiểm tra lại cấu hình API.`);
-    } finally {
-      state.isGenerating = false;
-      el.btnSend.disabled = false;
-      el.questionInput.focus();
-    }
+      const placeholder = document.getElementById('graph-placeholder');
+      if (placeholder) {
+        placeholder.classList.remove('hidden');
+        placeholder.textContent = 'Lỗi Stream SSE';
+      }
+      const msg = err.isCustomMsg ? err.message : '⚠️ **Lỗi kết nối**: Không thể kết nối tới backend/API. Vui lòng kiểm tra lại hệ thống.';
+      const targetSession = state.sessions.find(item => item.id === currentSessionId);
+      if (targetSession) {
+        if (!Array.isArray(targetSession.messages)) targetSession.messages = [];
+        targetSession.messages.push({
+          role: 'assistant',
+          content: msg,
+          timestamp: new Date().toISOString()
+        });
+        const now = new Date().toISOString();
+        targetSession.updated_at = now;
+        targetSession.updatedAt = now;
+        targetSession.preview = '⚠️ Lỗi kết nối';
+        renderSessionList();
+      }
+      appendMessage(
+        'assistant',
+        msg
+      );
+    }).finally(() => {
+      if (currentRunId === graphRunId) {
+        state.isGenerating = false;
+        el.btnSend.disabled = false;
+        el.questionInput.focus();
+        fetchUserMemoryStatus();
+      }
+    });
   }
 
   async function checkSystemHealth() {
@@ -344,6 +2095,7 @@
         const data = await res.json();
         el.systemStatusText.textContent = 'Hệ thống sẵn sàng';
         el.systemStatusBadge.querySelector('.status-dot').style.background = '#10b981';
+        updateSidebarModelLabel(data);
       } else {
         throw new Error();
       }
@@ -353,62 +2105,190 @@
         const fallback = getApiEndpoint('/health');
         const res = await fetch(fallback);
         if (res.ok) {
+          const data = await res.json();
           el.systemStatusText.textContent = 'Hệ thống sẵn sàng';
           el.systemStatusBadge.querySelector('.status-dot').style.background = '#10b981';
+          updateSidebarModelLabel(data);
           return;
         }
       } catch {}
       el.systemStatusText.textContent = 'Backend Offline';
       el.systemStatusBadge.querySelector('.status-dot').style.background = '#ef4444';
+      if (el.sidebarModelLabel) el.sidebarModelLabel.textContent = 'Backend offline';
     }
   }
 
-  async function checkSystemHealthInModal() {
-    el.healthResult.textContent = 'Đang kiểm tra kết nối...';
-    el.healthResult.style.color = 'var(--text-secondary)';
+  // ==========================================================================
+  // Toast Notification Helper
+  // ==========================================================================
+  function showToast(message, type = 'info', duration = 3500) {
+    let container = el.toastContainer || document.getElementById('toast-container');
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'toast-container';
+      container.className = 'toast-container';
+      document.body.appendChild(container);
+      el.toastContainer = container;
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    const icon = type === 'success' ? '✓' : type === 'error' ? '⚠' : 'ℹ';
+    toast.innerHTML = `
+      <span class="toast-icon">${icon}</span>
+      <span class="toast-message">${escapeHtml(message)}</span>
+    `;
+    container.appendChild(toast);
+    setTimeout(() => {
+      toast.classList.add('toast-fade-out');
+      setTimeout(() => {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 300);
+    }, duration);
+  }
+
+  // ==========================================================================
+  // Human Feedback Management (Phase 4 Connect UI to Data)
+  // ==========================================================================
+  async function handleLikeClick(ctx) {
+    if (!ctx) return;
+    try {
+      const payload = {
+        session_id: ctx.sessionId || state.activeSessionId || 'default',
+        user_id: ctx.userId || state.userId || 'default',
+        question: ctx.question || state.lastQuestion || '',
+        answer: ctx.answer || '',
+        rating: 'positive',
+        agent_trace: ctx.agent_trace || { nodes: state.lastAgentTrace || [] },
+      };
+      const res = await apiFetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
+      ctx.likeBtn.classList.add('active');
+      ctx.dislikeBtn.classList.remove('active');
+      showToast('Cảm ơn bạn đã đánh giá câu trả lời!', 'success');
+    } catch (err) {
+      console.error('Lỗi khi gửi đánh giá:', err);
+      showToast('Không thể gửi đánh giá, vui lòng thử lại', 'error');
+    }
+  }
+
+  function handleDislikeClick(ctx) {
+    if (!ctx) return;
+    state.feedbackContext = ctx;
+    openFeedbackModal();
+  }
+
+  function openFeedbackModal() {
+    if (!el.feedbackModal) return;
+    if (el.feedbackReasonInput) el.feedbackReasonInput.value = '';
+    clearFeedbackImage();
+    el.feedbackModal.classList.add('active');
+    el.feedbackModal.setAttribute('aria-hidden', 'false');
+    setTimeout(() => {
+      if (el.feedbackReasonInput) el.feedbackReasonInput.focus();
+    }, 120);
+  }
+
+  function closeFeedbackModal() {
+    if (!el.feedbackModal) return;
+    el.feedbackModal.classList.remove('active');
+    el.feedbackModal.setAttribute('aria-hidden', 'true');
+    clearFeedbackImage();
+  }
+
+  function clearFeedbackImage() {
+    state.attachedImageBase64 = null;
+    state.attachedImageFilename = null;
+    if (el.feedbackFileInput) el.feedbackFileInput.value = '';
+    if (el.uploadPreview) el.uploadPreview.style.display = 'none';
+    if (el.uploadPrompt) el.uploadPrompt.style.display = 'flex';
+    if (el.feedbackPreviewImg) el.feedbackPreviewImg.src = '';
+  }
+
+  function handleImageFile(file) {
+    if (!file) return;
+    if (!file.type || !file.type.startsWith('image/')) {
+      showToast('Vui lòng chọn tệp hình ảnh hợp lệ (PNG, JPG, WebP)', 'error');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Dung lượng ảnh vượt quá giới hạn 5MB', 'error');
+      return;
+    }
+    state.attachedImageFilename = file.name || 'screenshot.png';
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      state.attachedImageBase64 = e.target.result;
+      if (el.feedbackPreviewImg) el.feedbackPreviewImg.src = e.target.result;
+      if (el.uploadPrompt) el.uploadPrompt.style.display = 'none';
+      if (el.uploadPreview) el.uploadPreview.style.display = 'inline-block';
+    };
+    reader.onerror = () => {
+      showToast('Không thể đọc file ảnh, vui lòng thử lại', 'error');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function submitFeedback() {
+    const reason = el.feedbackReasonInput ? el.feedbackReasonInput.value.trim() : '';
+    const finalReason = reason || 'Chưa đúng (không có lý do chi tiết)';
+
+    const ctx = state.feedbackContext;
+    const submitBtn = el.btnSubmitFeedback;
+    const submitText = document.getElementById('btn-submit-feedback-text');
+    if (submitBtn) submitBtn.disabled = true;
+    if (submitText) submitText.textContent = 'Đang gửi...';
 
     try {
-      const url = getApiEndpoint('/api/health');
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        el.healthResult.innerHTML = `✅ <strong>Kết nối thành công!</strong> Model active: <code>${data.active_model || 'N/A'}</code>`;
-        el.healthResult.style.color = '#10b981';
-      } else {
-        throw new Error();
+      const payload = {
+        session_id: (ctx && ctx.sessionId) || state.activeSessionId || 'default',
+        user_id: (ctx && ctx.userId) || state.userId || 'default',
+        question: (ctx && ctx.question) || state.lastQuestion || '',
+        answer: (ctx && ctx.answer) || '',
+        rating: 'negative',
+        feedback_reason: finalReason,
+        image_base64: state.attachedImageBase64 || null,
+        image_filename: state.attachedImageFilename || null,
+        agent_trace: (ctx && ctx.agent_trace) || { nodes: state.lastAgentTrace || [] },
+      };
+
+      const res = await apiFetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        let errMsg = 'Gửi phản hồi thất bại, vui lòng thử lại';
+        try {
+          const errData = await res.json();
+          if (errData.detail) errMsg = errData.detail;
+        } catch (e) {}
+        throw new Error(errMsg);
       }
-    } catch {
-      el.healthResult.innerHTML = `❌ <strong>Không thể kết nối</strong> tới Backend. Hãy chắc chắn Uvicorn/Docker đang chạy trên cổng 8000.`;
-      el.healthResult.style.color = '#ef4444';
+
+      if (ctx && ctx.dislikeBtn) {
+        ctx.dislikeBtn.classList.add('active');
+        if (ctx.likeBtn) ctx.likeBtn.classList.remove('active');
+      }
+      closeFeedbackModal();
+      if (!reason) {
+        showToast('Đã ghi nhận phản hồi chưa đúng!', 'info');
+      } else {
+        showToast('Đã ghi nhận góp ý của bạn!', 'success');
+      }
+    } catch (err) {
+      console.error('Lỗi gửi feedback:', err);
+      showToast(err.message || 'Gửi phản hồi thất bại, vui lòng thử lại', 'error');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+      if (submitText) submitText.textContent = 'Xác nhận gửi phản hồi';
     }
-  }
-
-  // ==========================================================================
-  // Settings Management
-  // ==========================================================================
-  function openSettings() {
-    applyStateToUI();
-    el.healthResult.textContent = '';
-    el.settingsModal.classList.add('active');
-  }
-
-  function closeSettings() {
-    el.settingsModal.classList.remove('active');
-  }
-
-  function saveSettings() {
-    const selectedProvider = el.radioSelfHosted.checked ? 'self_hosted' : 'openai';
-    const apiUrl = el.inputApiUrl.value.trim();
-
-    state.activeModel = selectedProvider;
-    state.apiBaseUrl = apiUrl;
-
-    localStorage.setItem('agent_model_provider', selectedProvider);
-    localStorage.setItem('agent_api_base_url', apiUrl);
-
-    applyStateToUI();
-    closeSettings();
-    checkSystemHealth();
   }
 
   // Start app

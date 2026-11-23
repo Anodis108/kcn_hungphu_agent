@@ -1,7 +1,25 @@
 __pycache__/
 *.pyc
 .env
+langfuse/.env
 .venv/
 venv/
 *.sqlite3
+*.db
+*.db-wal
+*.db-shm
 .pytest_cache/
+
+# Eval outputs (giữ thư mục bằng .gitkeep)
+eval/results/*
+!eval/results/.gitkeep
+!eval/results/golden-30.md
+
+# Feedback attachments (+ legacy wrong path under src/)
+data/feedback/attachments/*
+!data/feedback/attachments/.gitkeep
+src/data/
+
+# Agent Postgres (bind mount under resource/db/agent)
+resource/db/agent/data/pgdata/
+resource/db/agent/data/qdrant/

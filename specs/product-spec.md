@@ -1,88 +1,125 @@
-# Product Spec (agent_stat_v3)
+# Product Spec — agent dong v9: Unified Memory & Context Engineering System (Postgres-backed)
 
-## App Goal
-Tái cấu trúc và phát triển hệ thống hỏi-đáp AI phục vụ giám sát, thống kê toàn bộ 8 loại sự kiện camera AI trên nền tảng VMS tại Khu công nghiệp Hưng Phú. Hệ thống được xây dựng tinh gọn, dễ đọc, dễ bảo trì (tham khảo phong cách `llm-engineer-demo`), chia tách độc lập giữa **Frontend (FE)** và **AI_Backend**, điều phối trọn gói bằng **Docker Compose**, **giữ nguyên kiến trúc ReAct Agent hiện tại** để dễ so sánh đối chứng hiệu năng, nâng cấp giám sát **Langfuse** (đầy đủ output và token metrics) và hỗ trợ **Model LLM tự host (Qwen3-4B)**.
-
-Hệ thống bao quát đầy đủ 8 nhóm sự kiện camera AI:
-1. **Nhận diện khuôn mặt** (`smart_face.smf_face_events`)
-2. **Giám sát phương tiện** (`its.plate_event`)
-3. **Giám sát vùng cấm / hàng rào ảo** (`virtual_fence.zone_event`)
-4. **Phát hiện ẩu đả** (`anomaly.anomaly_event` — `FIGHT_DETECTION`)
-5. **Phát hiện đám đông** (`anomaly.anomaly_event` — `CROWD_DETECTION`)
-6. **Phát hiện leo trèo** (`anomaly.anomaly_event` — `INTRUSION_DETECTION`)
-7. **Phát hiện cháy khói** (`firesmoke.fire_smoke_event`)
-8. **Giám sát mực nước** (`anomaly.anomaly_event` — `WATER_LEVEL_DETECTION`)
+**Trạng thái:** Spec Approved — Sẵn sàng triển khai tuần tự.  
+**Baseline:** v8 đang chạy ổn định (Text-to-SQL Postgres read-only, 10 Camera Registry, Human Feedback, Chunk Streaming SSE).  
+**Triết lý:** Đơn giản, tinh gọn, tập trung tối đa vào MVP theo chuẩn Spec-Driven Development.
 
 ---
 
-## Target Users
-- **Ban Quản lý & Đội ngũ Vận hành an ninh, hạ tầng KCN Hưng Phú**: Cần tra cứu số liệu thống kê nhanh chóng bằng tiếng Việt tự nhiên, không cần viết câu lệnh SQL.
-- **Kỹ sư AI / Vận hành Hệ thống (LLMOps)**: Theo dõi trực quan vết suy luận của agent, số lượng token tiêu thụ, độ trễ và quản lý phiên bản prompt qua Langfuse.
+## 1. App Goal
+
+Xây dựng và chuẩn hóa hệ thống **Memory & Context Engineering** tinh gọn, bền vững cho multi-agent VMS KCN Hưng Phú dựa trên kiến trúc của `llm-engineer-demo`:
+
+1. **Bền vững hóa dữ liệu (PostgreSQL Persistence)**: Lưu trữ các sự thật (facts) dài hạn của người dùng vào bảng `user_memories` trong PostgreSQL, khắc phục tình trạng mất dữ liệu khi restart container.
+2. **Tối ưu hóa ngữ cảnh (Context Engineering)**: Áp dụng kỹ thuật Sliding Window, ước lượng token theo nguyên tắc 40-60% (chủ động tóm tắt trước khi suy giảm chất lượng), nén kết quả tool dài, và tái chèn chỉ dẫn cốt lõi ở cuối prompt chống trôi quy tắc.
+3. **Bộ đệm phản hồi tức thì (TTL Cache)**: Lưu tạm câu trả lời theo mã băm SHA-256 trong 300s, phản hồi tức thì (< 5ms) khi câu hỏi trùng lặp mà không cần gọi lại LLM/SQL.
+4. **An toàn vận hành (Graceful Degradation)**: Tự động chuyển đổi sang in-memory fallback nếu database ngắt kết nối, đảm bảo 100% không phát sinh lỗi làm gián đoạn trải nghiệm người dùng.
 
 ---
 
-## Core User Flow
-1. **Truy cập Giao diện**: Người dùng mở trình duyệt truy cập Frontend UI (phong cách Claude UI tinh tế, hiện đại).
-2. **Cấu hình Model**: Người dùng có thể kiểm tra hoặc chuyển đổi giữa OpenAI Cloud (`gpt-4o-mini`) và Model LLM tự host (`qwen3-4b`).
-3. **Đặt Câu hỏi**: Nhập câu hỏi tự nhiên bằng tiếng Việt (ví dụ: *"Hôm nay có bao nhiêu lượt xe vào?"* hoặc *"Có cảnh báo cháy hay ẩu đả nào hôm nay không?"*).
-4. **Xử lý tại AI_Backend**:
-   - Kiểm tra Guardrails đầu vào (chặn prompt injection, lọc câu hỏi ngoài phạm vi).
-   - Chạy **ReAct Agent hiện tại** (`build_react_subgraph`: `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`) để chọn tool và truy vấn số liệu thật từ Postgres (read-only role `agent_readonly`).
-   - Diễn giải kết quả qua LLM Answer node (hoặc template nhanh) kết hợp với Git-based Prompt Registry (`prompts/`).
-   - Kiểm tra Guardrails đầu ra (chống hallucination, che giấu PII).
-5. **Phản hồi Trực quan**: FE hiển thị câu trả lời rõ ràng kèm chi tiết công cụ đã thực thi (collapsible execution accordion).
-6. **Langfuse Observability**: Ghi nhận toàn bộ trace (đầy đủ `input`, `output`, `prompt_tokens`, `completion_tokens`, `total_tokens`, `model_name`, `latency_s`).
+## 2. Target Users
+
+| Đối tượng | Nhu cầu chính | Giá trị nhận được |
+|-----------|---------------|-------------------|
+| **Giám sát viên KCN** | - Chat nhiều lượt liên tục về camera, xe cộ, an ninh.<br>- Trợ lý ghi nhớ tên, phòng ban, ca trực và khu vực phụ trách.<br>- Nhận kết quả tức thì với các câu hỏi lặp lại trong ca trực. | Trải nghiệm thông minh, nhất quán, không bị mất ngữ cảnh khi F5 hoặc bảo trì server. |
+| **Kỹ sư AI / Developer** | - Mã nguồn Memory & Context sạch sẽ, dễ bảo trì, tuân thủ Clean Architecture.<br>- Viết test độc lập không phụ thuộc cứng vào hạ tầng ngoài.<br>- Dễ dàng cấu hình bật/tắt từng lớp memory qua file `.env`. | Hệ thống chuẩn Enterprise, dữ liệu an toàn trên PostgreSQL, dễ mở rộng. |
 
 ---
 
-## Features In Scope
+## 3. Core User Flow
 
-### 1. Phân Tách Độc Lập Frontend & AI_Backend
-- **Frontend (`frontend/`)**: Giao diện Claude-inspired trực quan, nhẹ, dễ chỉnh sửa; hỗ trợ cấu hình API endpoint và chuyển đổi Model Provider.
-- **AI_Backend (`backend/` / `src/`)**: FastAPI service chứa toàn bộ API Gateway, Agent ReAct, Database Tools, Guardrails và Observability.
-- **Giữ nguyên Kiến trúc Agent ReAct**: Duy trì nguyên vẹn mô hình ReAct LangGraph (`seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`) với 8 domain sự kiện VMS để bảo đảm tính tương thích và dễ so sánh đối chứng.
-
-### 2. Quản Lý Điều Phối Trọn Gói (Docker Compose)
-- Tệp `docker-compose.yml` tại thư mục gốc quản lý khởi chạy đồng bộ:
-  - Service `frontend`: Web server phục vụ Claude UI.
-  - Service `ai_backend`: FastAPI server kết nối Agent, Tools và Postgres.
-  - Service `langfuse` stack: Langfuse Web, Worker, ClickHouse, Postgres nội bộ, Redis, MinIO.
-
-### 3. Nâng Cấp Langfuse Observability Toàn Diện
-- **Lưu trữ Đầy đủ Output**: Bắt buộc ghi nhận trường `output` trên toàn bộ trace và child span.
-- **Token Usage & Call Metrics**: Thu thập chi tiết thông số mỗi lượt gọi LLM: `prompt_tokens`, `completion_tokens`, `total_tokens`, `model_name`, `temperature`, `latency_s`.
-- **Mật khẩu Quản trị Mặc định**: Tài khoản `admin@agent-atin.local` đăng nhập với mật khẩu: **`Atin@123#`**.
-
-### 4. Hỗ Trợ Dual Model (OpenAI Cloud & Model Tự Host)
-- Chuyển đổi linh hoạt giữa:
-  - **OpenAI Cloud**: `gpt-4o-mini` (hỗ trợ quay vòng key khi gặp rate-limit).
-  - **Model tự host (Local/Self-hosted)**:
-    - Base URL: `http://192.168.1.196:18083/v1`
-    - Model: `qwen3-4b`
-    - API Key: `lgw_ef6984db8f59_zSvqDWXxYzeaU-4U0pLqS7LBiD5gvOm9wI7R-L4Lpqw`
-    - Endpoint: `http://192.168.1.196:18083/v1/chat/completions`
-
-### 5. Git-based Prompt Registry
-- Tiếp tục duy trì quản lý prompt qua file YAML và con trỏ `production.txt` trong `prompts/`.
-
----
-
-## Features Out of Scope (Bản v3 MVP)
-- Thay đổi cấu trúc Agent sang Multi-agent swarm (giữ nguyên cấu trúc ReAct hiện tại để đối chứng).
-- Text-to-SQL tự do (duy trì function calling an toàn trên bộ tool cố định).
-- Vector DB / RAG cho dữ liệu phi cấu trúc.
-- Cảnh báo đẩy chủ động thời gian thực qua WebSocket/Telegram.
-- Kubernetes clustering hoặc hạ tầng cloud phức tạp.
+```text
+[Người dùng gửi câu hỏi] (question, user_id, session_id)
+        │
+        ▼
+[1. Kiểm tra TTL Cache] ──(Hit: <5ms)──► [Trả ngay câu trả lời]
+        │ (Miss)
+        ▼
+[2. Recall Long-Term Memory] ──► Truy vấn facts của user_id từ PostgreSQL
+        │
+        ▼
+[3. Context Engineering Engine]
+   ├─ Kiểm tra Context Usage (ngưỡng 40%) ──► Tự động tóm tắt hội thoại cũ nếu vượt ngưỡng
+   ├─ Cắt tỉa Sliding Window ──► Giữ N tin nhắn gần nhất + system prompt gốc
+   ├─ Nạp facts người dùng ──► Chèn vào system context ("Thông tin đã biết về user: ...")
+   └─ Re-inject Core Instructions ──► Chèn chỉ dẫn cốt lõi ở cuối prompt
+        │
+        ▼
+[4. Agent Graph Execution]
+   └─ Thực thi Tool (Text-to-SQL / Docs) ──► Nén kết quả tool nếu quá dài (Tool Compression)
+        │
+        ▼
+[5. Extract & Store Fact] ──► Trích xuất fact mới đáng nhớ và ghi vào PostgreSQL
+        │
+        ▼
+[6. Lưu TTL Cache & Stream Response] ──► Ghi cache 300s và stream câu trả lời về người dùng
+```
 
 ---
 
-## Acceptance Criteria
-1. **Khởi chạy 1 lệnh**: `docker compose up -d` khởi động đồng bộ và thành công cả 3 cụm: Frontend, AI_Backend, và Langfuse.
-2. **Giao diện Claude-inspired**: UI thẩm mỹ cao, hiển thị lịch sử chat, có accordion xem chi tiết công cụ thực thi, cho phép chuyển đổi model.
-3. **Phân tách Rõ ràng**: Cấu trúc thư mục `frontend/` và `backend/` tách bạch, có thể chạy và kiểm thử độc lập.
-4. **Giữ nguyên Kiến trúc Agent ReAct**: Graph ReAct hiện tại hoạt động ổn định, trả lời chính xác số liệu cho cả 8 domain sự kiện VMS.
-5. **Langfuse Observability Đầy đủ**:
-   - Đăng nhập được vào Langfuse UI (`http://localhost:3000`) với email `admin@agent-atin.local` và mật khẩu `Atin@123#`.
-   - Mọi lượt gọi `/api/chat` (hoặc `/ask`) đều tạo trace có đầy đủ `output` và token metrics (`prompt_tokens`, `completion_tokens`, `total_tokens`).
-6. **Hoạt động với Model Tự Host**: Agent phản hồi chính xác khi cấu hình sử dụng model tự host `qwen3-4b` tại `http://192.168.1.196:18083/v1`.
-7. **Đạt chuẩn Kiểm thử**: Đạt 100% pass trên bộ 24 unit tests offline và 30 câu hỏi mẫu golden dataset (`eval/run.py`).
+## 4. Features in Scope
+
+1. **PostgreSQL Memory Persistence (`src/memory/db.py`)**:
+   - Tự động tạo bảng `user_memories` (`id`, `user_id`, `fact`, `category`, `created_at`, `updated_at`) và index `(user_id)`.
+   - Kết nối qua connection pool sẵn có; an toàn tuyệt đối, không crash ứng dụng nếu DB tạm thời offline.
+
+2. **Clean Long-Term Memory (`src/memory/longterm.py`)**:
+   - `save_to_long_term(user_id, fact, category)`: Ghi fact vào PostgreSQL.
+   - `recall_long_term(user_id, query, k=3)`: Lấy top-k fact liên quan nhất của `user_id` từ PostgreSQL (xếp hạng theo mức độ trùng khớp từ khóa).
+   - `clear_long_term(user_id)`: Xóa memory phục vụ kiểm thử.
+   - Tự động fallback sang RAM list khi không có DB.
+
+3. **Context Engineering Engine (`src/memory/context.py`)**:
+   - `sliding_window(messages, max_messages=20)`: Giữ N message gần nhất, luôn giữ system message khởi tạo.
+   - `estimate_tokens(messages)` & `context_usage(messages, window_tokens)`: Đo lường tải context (hỗ trợ tiktoken / 4 ký tự/token).
+   - `should_compact(messages, window_tokens, threshold=0.40)`: Kích hoạt tóm tắt chủ động khi vượt 40% window (nguyên tắc 40-60%).
+   - `should_compact_route(messages, window_tokens, threshold=0.40)`: Conditional edge cho LangGraph (`"compact"` hoặc `"continue"`).
+   - `summarize_old_messages(messages, keep_recent=6)`: Tóm tắt tin nhắn cũ thành 3-5 câu mang tiền tố `[Tóm tắt hội thoại trước]: ...`.
+   - `create_compaction_diff(messages, keep_recent=6)`: Tạo diff `RemoveMessage(id)` và `SystemMessage` tóm tắt để mutate/persist trực tiếp vào LangGraph state (`add_messages` reducer).
+   - `compress_tool_result(raw_result, query, max_tokens=300)`: Nén kết quả tool dài trước khi đưa vào prompt.
+   - `reinject_instructions(messages, instructions)`: Chèn lại quy tắc cốt lõi ở cuối context chống instruction fade-out (`[Nhắc lại chỉ dẫn]: ...`).
+   - `latest_human_query(messages)` (`_latest_human_query`): Quét ngược tìm câu hỏi user/human gần nhất phục vụ tool retrieval & memory recall.
+   - `detect_repetition(messages, window=4)` (`_detect_repetition`): Circuit breaker phát hiện agent lặp lại hành động/tool call liên tiếp để ngắt vòng lặp vô tận.
+
+4. **Short-Term Checkpointer (`src/memory/shortterm.py`)**:
+   - `get_checkpointer()`: Cung cấp checkpointer cho LangGraph phiên chat, hỗ trợ lưu trữ bền vững khi có DB và fallback `MemorySaver` trong RAM.
+
+5. **TTL Response Cache (`src/memory/ttl_cache.py`)**:
+   - Khóa băm SHA-256 chuẩn hóa câu hỏi.
+   - `get_ttl_cached(key)` & `set_ttl_cached(key, data, ttl=300)`: Thread-safe, tự động xóa entry hết hạn.
+
+6. **Fact Extraction (`src/memory/extract.py`)**:
+   - Heuristic regex tiếng Việt (tên, vai trò, camera phụ trách, lưu ý).
+   - Tích hợp prompt trích xuất ngắn gọn cuối lượt hội thoại. Bỏ qua các số liệu thống kê tạm thời.
+
+7. **Graph Integration & Config (`src/agent/graph.py` & `src/config.py`)**:
+   - Gắn `recall_node` ở đầu luồng và `extract_node` ở cuối luồng graph.
+   - Cấu hình qua `.env`: `MEMORY_ENABLED`, `MEMORY_SHORT_TERM_ENABLED`, `MEMORY_LONG_TERM_ENABLED`, `MEMORY_TTL_SECONDS`.
+
+---
+
+## 5. Features out of Scope
+
+- **Không dùng Vector Database rời**: Không kéo thêm Qdrant Cloud, Milvus, Pinecone hay Chroma. Tận dụng tối đa PostgreSQL native và token/keyword overlap đơn giản, hiệu quả.
+- **Không làm GUI quản trị Memory**: Không dựng trang web riêng để xem/sửa memory; dữ liệu được quản lý tự động qua API và bảng PostgreSQL.
+- **Không áp dụng thuật toán nén phức tạp ngoài MVP**: Giữ cơ chế Sliding Window + Summarization đơn giản, không nhúng các thư viện tóm tắt phân cấp cồng kềnh.
+- **Không yêu cầu Embeddings bên ngoài**: Mọi hàm trích xuất và tìm kiếm hoạt động tốt cả khi offline hoặc không có API key OpenAI.
+
+---
+
+## 6. Acceptance Criteria
+
+- **AC-1 (PostgreSQL Durability)**: Fact lưu qua `save_to_long_term` phải nằm trong bảng `user_memories`. Sau khi restart server, `recall_long_term` vẫn đọc lại đúng dữ liệu của `user_id`.
+- **AC-2 (User Isolation)**: Mọi thao tác bộ nhớ phải cô lập theo `user_id`. Không bao giờ để rò rỉ fact của user này sang context của user khác.
+- **AC-3 (Graceful Fallback)**: Khi `DB_HOST` rỗng hoặc DB ngắt kết nối, 100% các hàm memory tự động fallback sang in-memory, tuyệt đối không văng exception ra ngoài.
+- **AC-4 (TTL Cache Speed & Expiry)**:
+  - Cache Hit phản hồi câu trả lời với latency < 5ms.
+  - Sau thời gian TTL (300s), cache tự động hết hạn và kích hoạt lại luồng xử lý thông thường.
+- **AC-5 (Sliding Window & Instruction Retention)**: Hội thoại dài trên 10 lượt không bị tràn token; chỉ dẫn an toàn luôn hiện diện ở cuối prompt nhờ `reinject_instructions`.
+- **AC-6 (Active Compaction 40%)**: Khi dung lượng ngữ cảnh vượt ngưỡng 40% window, hệ thống tự động gom tin nhắn cũ thành 1 đoạn tóm tắt `[Tóm tắt hội thoại trước]: ...`, giữ nguyên các tin nhắn gần nhất.
+- **AC-7 (Tool Output Compression)**: Kết quả SQL table hoặc Docs dài hơn `max_tokens` được nén gọn gàng trước khi nạp vào context.
+- **AC-8 (Zero Regression & Clean Code)**: Không còn code rác `vector=[0.0]`; toàn bộ test suite cũ và mới (≥620 tests) đạt kết quả PASS 100%.
+- **AC-9 (Nested Langfuse substeps — v13)**: Mọi node graph có span ngoài (`_wrap_node`) và span con `trace_step` cho từng khối logic trong node theo [archive/nested-trace-v13-design.md](archive/nested-trace-v13-design.md). Nhánh SQL batch có substeps per query. Không đổi hành vi trả lời; `tests/test_product_observability_errors.py` pass AC-T1–T3.
+- **AC-10 (ai_backend layout — v14)**: Cây `src/` theo [v14-ai-backend-layout-design.md](v14-ai-backend-layout-design.md): `domain/agents/vms` + `multi_agent`, `application/`, `shared/settings`; HTTP + tên node LangGraph không đổi; `specs/` chỉ còn bộ core SDD + `archive/`; `pytest -q` xanh (hoặc fail pre-existing đã ghi change-log).
+- **AC-11 (leaf agents + flat graph — v15)**: Theo [v15-leaf-agents-flat-graph-design.md](v15-leaf-agents-flat-graph-design.md): `sql_agent` / `docs_agent` (không `compile` subgraph) + `vms/graph.py` gộp máy chạy; không `chart_agent` / `vms/core`; tên node + HTTP/SSE không đổi; pytest subset AC trong design xanh.
+- **AC-12 (IAM RBAC + geo scope — v18)**: Theo [v18-rbac-iam-design.md](v18-rbac-iam-design.md): Bearer → IAM `/auth/me`; org ngoài allowed → 403; `dashboard_role_group` lọc domain/table/docs; SQL inject org (+ site/area/zone/device khi có cột); `IAM_REQUIRED=false` bypass BOARD_DIRECTOR; `agents/knowledge/` + corpus `agents/knowledge/retrieval/`.

@@ -1,97 +1,132 @@
-# Test Plan (agent_stat_v3 FE & AI_Backend)
+# Test Plan — agent dong v9: Unified Memory & Context Engineering System (Postgres-backed)
 
-Kế hoạch kiểm thử toàn diện cho hệ thống: Phân tách Frontend & AI_Backend, giữ nguyên kiến trúc ReAct Agent hiện tại, điều phối bằng Docker Compose, nâng cấp Langfuse output + token metrics, hỗ trợ Model tự host Qwen3-4B và giao diện Claude UI.
-
----
-
-## 1. Nguyên Tắc Kiểm Thử
-- **Test Offline (`pytest`)**: Không cần kết nối Postgres hay LLM API thật; có thể chạy độc lập ở môi trường local/CI, kiểm tra cấu trúc ReAct graph, guardrails và mock client.
-- **Test Thật (Live E2E)**: Cần kết nối tới Postgres VMS và LLM backend (OpenAI hoặc Self-hosted Qwen3-4B), kiểm tra luồng hỏi-đáp thực tế và độ chính xác số liệu trên cả 8 domain.
-- **Test Observability**: Kiểm tra việc ghi nhận trace trên Langfuse (đủ output, token usage, độ trễ) và đăng nhập với mật khẩu `Atin@123#`.
-- **Test Container hóa**: Kiểm tra khả năng khởi động đồng bộ và liên lạc giữa các service qua `docker compose up -d`.
+**Trạng thái:** Spec only — Chuẩn bị thực hiện.  
+**Mục tiêu:** Kiểm thử toàn diện hệ thống Memory 3 tầng (Short-Term, Long-Term, TTL Cache) lưu trữ trên PostgreSQL và Context Engineering Engine (`context.py`), đảm bảo tính bền vững, cách ly dữ liệu, quản lý cửa sổ ngữ cảnh tối ưu và không làm đứt gãy các luồng nghiệp vụ hiện tại.
 
 ---
 
-## 2. Test Offline (Pytest)
+## 1. Phạm vi kiểm thử
 
-| # | Test Case | Kỳ vọng |
-|---|---|---|
-| 1 | **Guardrail Input — Prompt Injection** | Câu hỏi độc hại ("Ignore instructions...") bị chặn ngay tại backend, trả lỗi HTTP 400 rõ ràng, không gọi agent |
-| 2 | **Guardrail Input — Ngoài phạm vi** | Câu hỏi thời tiết, nấu ăn... bị từ chối lịch sự, không gọi DB |
-| 3 | **Agent ReAct Offline** | Câu hỏi hợp lệ chạy offline không crash, trả về kết quả hợp lệ |
-| 4 | **Tool Whitelist & Read-only** | Tool SQL chặn tuyệt đối câu lệnh ghi (`DELETE`, `UPDATE`, `DROP`); tham số ngoài whitelist bị từ chối |
-| 5 | **Prompt Registry Integration** | `PromptRegistry` đọc đúng file YAML, render đúng biến và báo lỗi `ValueError` nếu thiếu biến |
-| 6 | **Tracing No-op Offline** | Khi `MONITORING_ENABLED=false`, các hàm tracing hoạt động bình thường như no-op, không phát sinh lỗi |
-| 7 | **Backend Endpoints** | `/api/health` và `/api/models` trả về `200 OK` với danh sách model chính xác |
-
----
-
-## 3. Test Thật: LLM Tự Host (`qwen3-4b`) vs OpenAI
-
-Kiểm thử khả năng tương thích và phản hồi trên cả 2 backend LLM:
-
-| # | Backend | Endpoint / Model | Tiêu chí Đạt (Acceptance) |
-|---|---|---|---|
-| 1 | **Self-hosted LLM** | `http://192.168.1.196:18083/v1`<br>Model: `qwen3-4b` | Khởi tạo client thành công qua `MODEL_API_KEY`, gọi `chat/completions` sinh câu trả lời tiếng Việt chính xác theo số liệu thật |
-| 2 | **OpenAI Cloud** | `https://api.openai.com/v1`<br>Model: `gpt-4o-mini` | Hoạt động bình thường với key rotation khi gặp rate-limit |
-| 3 | **Chuyển đổi Backend** | Thay đổi qua biến `.env` hoặc UI | Hệ thống chuyển đổi ngay lập tức mà không cần sửa code logic |
+| Nhóm tính năng | Mục tiêu kiểm thử | Phương thức |
+|----------------|-------------------|-------------|
+| **PostgreSQL Long-Term Storage** | Lưu trữ và truy vấn facts người dùng vào bảng `user_memories` trong PostgreSQL. Dữ liệu không bị mất khi restart server. | Unit test + DB check |
+| **User Data Isolation** | Tuyệt đối không rò rỉ facts giữa các `user_id` khác nhau. | Unit test tự động |
+| **In-Memory Fallback** | Khi ngắt kết nối PostgreSQL hoặc cấu hình DB rỗng, hệ thống tự động fallback in-memory, không crash. | Unit test tự động |
+| **Context Engineering Engine** | Kiểm thử 5 kỹ thuật: Sliding Window, 40-60% Compaction rule, Summarization hội thoại cũ, Tool output compression, và Re-injecting instructions. | Unit test tự động |
+| **Short-Term Checkpointer** | Khởi tạo checkpointer bền vững trên PostgreSQL (fallback `MemorySaver` khi chạy local/test). | Unit test tự động |
+| **TTL Response Cache** | Cache Hit phản hồi nhanh < 10ms; hết hạn TTL tự động miss; thread-safe khi nhiều request đồng thời. | Unit test tự động |
+| **Smart Fact Extraction** | Nhận diện chính xác tên, vai trò, sở thích; lọc bỏ không lưu số liệu giao thông/realtime tạm bợ. | Unit test tự động |
+| **End-to-End Regression** | Đảm bảo 100% các tính năng cũ (Text-to-SQL, 10 camera, Human Feedback, Streaming) tiếp tục hoạt động trơn tru. | Chạy toàn bộ pytest suite |
+| **Nested Langfuse trace (v13)** | Mọi node graph có substeps `trace_step` theo design; batch SQL trace từng câu. | pytest + manual Langfuse |
 
 ---
 
-## 4. Test Langfuse Observability & Token Usage
+## 1.1 Observability — nested trace (v13)
 
-Kiểm tra trực tiếp trên hạ tầng Langfuse self-hosted:
+**Spec:** [nested-trace-v13-design.md](nested-trace-v13-design.md) · **AC:** `product-spec.md` AC-9.
 
-| # | Mục Kiểm Tra | Thao Tác & Dữ Liệu | Tiêu chí Đạt |
-|---|---|---|---|
-| 1 | **Đăng nhập Quản trị** | Truy cập `http://localhost:3000`<br>User: `admin@agent-atin.local`<br>Password: `Atin@123#` | Đăng nhập thành công vào Dashboard dự án `agent_ATIN` |
-| 2 | **Lưu trữ Đầy đủ Output** | Gửi 1 câu hỏi qua API → Mở trace trên Langfuse | Cả trace cha (`ask`/`chat`) và các span con (`chon_tool`, `chay_tool`, `dien_giai`) đều hiển thị trường `output` đầy đủ |
-| 3 | **Token Usage Metrics** | Kiểm tra chi tiết observation thế hệ LLM | Có đầy đủ thông số: `prompt_tokens > 0`, `completion_tokens > 0`, `total_tokens = prompt + completion` |
-| 4 | **Model & Latency Info** | Kiểm tra trường metadata của trace | Hiển thị chính xác tên model (`gpt-4o-mini` hoặc `qwen3-4b`), `latency_s` đo thời gian thực thi |
-| 5 | **Bảo mật Secret** | Rà soát toàn bộ payload của trace | Tuyệt đối **không xuất hiện** API keys thật (`sk-proj-...`, `lgw_...`) hay mật khẩu DB |
-| 6 | **Khả năng Chịu lỗi (Resilience)** | Tắt tạm thời container Langfuse rồi gửi câu hỏi | API vẫn trả lời câu hỏi bình thường, không crash hệ thống (lỗi tracing được tự động bắt và log) |
+| ID | Kiểm thử | Kỳ vọng |
+|----|---------|---------|
+| **AC-T1** | Mock `trace_step`, invoke node tối thiểu (`guardrail_input`, `recall`, `rewrite`, `classify`) | Danh sách tên span con khớp bảng design §3 |
+| **AC-T2** | `execute_sql_node` với `sql_batch` ≥ 2 (offline/mock DB) | ≥ 2 substeps `postgres_query` (hoặc validate tương đương per item) |
+| **AC-T3** | `pytest tests/test_product_observability_errors.py -q` | Pass; không regression test graph hành vi |
 
----
-
-## 5. Test Giao Diện Frontend (Claude-Inspired UI)
-
-| # | Tính Năng UI | Thao Tác | Tiêu chí Đạt |
-|---|---|---|---|
-| 1 | **Thẩm mỹ & Bố cục** | Mở trình duyệt tại `http://localhost:8080` (hoặc cổng FE) | Giao diện hiện đại phong cách Claude, tone màu ấm, typography rõ nét, responsive |
-| 2 | **Cấu hình Model** | Mở menu cấu hình model | Hiển thị danh sách model khả dụng, cho phép chuyển đổi giữa OpenAI và Self-hosted Qwen3-4B |
-| 3 | **Tool Execution Accordion** | Gửi câu hỏi thống kê | Hiển thị khối "Chi tiết công cụ đã thực thi" dạng accordion, cho phép thu gọn/mở rộng xem tool nào đã chạy |
-| 4 | **Markdown Rendering** | Câu trả lời có bảng số liệu và danh sách | Bảng biểu HTML/Markdown render ngay ngắn, dễ nhìn |
-| 5 | **Trạng thái Trực quan** | Khi hệ thống đang truy vấn | Hiển thị indicator đang xử lý / loading animation mượt mà |
+**Manual:** Một lượt chat với `MONITORING_ENABLED=true` → Langfuse trace `chat` hiển thị cây substeps dưới `rewrite`, `recall`, `execute_sql`.
 
 ---
 
-## 6. Test Điều Phối Docker Compose
+## 2. Kế hoạch kiểm thử tự động (Unit Tests)
 
-| # | Lệnh / Kịch Bản | Tiêu chí Đạt |
-|---|---|---|
-| 1 | `docker compose up -d` | Cả 3 nhóm service (`frontend`, `ai_backend`, `langfuse` stack) khởi động `Up (healthy)` mà không có lỗi |
-| 2 | Kết nối nội bộ FE → AI_Backend | Nginx proxy hoặc fetch từ FE gọi thành công `http://ai_backend:8000/api/...` |
-| 3 | Kết nối AI_Backend → DB / LLM | Backend truy vấn được Postgres VMS và gọi được endpoint LLM (`http://192.168.1.196:18083/v1`) |
-| 4 | `docker compose down` | Dừng an toàn toàn bộ container, dữ liệu Langfuse Postgres / ClickHouse được giữ nguyên trong docker volume |
+### Test Suite 1: Context Engineering Engine (`tests/test_product_memory_context.py`)
+- **Các ca kiểm thử**:
+  1. `test_sliding_window_preserves_system_and_recent`:
+     - Tạo danh sách 25 message (gồm 1 system message ở đầu và 24 turn qua lại).
+     - Gọi `sliding_window(messages, max_messages=10)`.
+     - Kỳ vọng: Trả về danh sách gồm 11 message (1 system message gốc + 10 message gần nhất), không bị lặp system message.
+  2. `test_estimate_tokens_and_context_usage`:
+     - Gọi `estimate_tokens` trên danh sách message mẫu.
+     - Kiểm tra `context_usage` với `window_tokens=4000`.
+     - Kỳ vọng: Giá trị trả về nằm trong khoảng [0.0, 1.0].
+  3. `test_should_compact_activates_at_40_percent`:
+     - Giả lập danh sách message chiếm 20% dung lượng window -> `should_compact` trả về `False`.
+     - Giả lập danh sách message chiếm 45% dung lượng window (vượt ngưỡng 40%) -> `should_compact` trả về `True`.
+  4. `test_summarize_old_messages_creates_summary_message`:
+     - Tạo danh sách 15 message.
+     - Gọi `summarize_old_messages(messages, keep_recent=4)`.
+     - Kỳ vọng: Kết quả trả về 5 message gồm 1 system message mang tiền tố `[Tóm tắt hội thoại trước]: ...` và 4 message mới nhất.
+  5. `test_compress_tool_result_skips_short_output`:
+     - Kết quả tool ngắn (< 300 token * 4 ký tự): hàm `compress_tool_result` trả về nguyên bản chuỗi gốc mà không gọi LLM nén.
+  6. `test_compress_tool_result_compresses_long_output`:
+     - Kết quả tool dài (chuỗi bảng số liệu > 2000 ký tự): hàm `compress_tool_result` kích hoạt LLM nén và trả về đoạn trích xuất cô đọng.
+  7. `test_reinject_instructions_appends_to_end`:
+     - Gọi `reinject_instructions(messages, "Quy tắc an toàn VMS KCN")`.
+     - Kỳ vọng: Tin nhắn cuối cùng trong danh sách trả về là system message mang tiền tố `[Nhắc lại chỉ dẫn]: ...`.
+  8. `test_latest_human_query_scans_backwards`:
+     - Quét ngược qua chuỗi tin nhắn có xen kẽ tool call và tool result.
+     - Kỳ vọng: Trả về chính xác nội dung câu hỏi gần nhất của người dùng (`role in ('human', 'user')`).
+  9. `test_detect_repetition_detects_infinite_loop`:
+     - Giả lập 4 tool call liên tiếp giống hệt nhau (`window=4`).
+     - Kỳ vọng: Trả về `True` kích hoạt cảnh báo `REPETITION_WARNING` ngắt vòng lặp vô tận.
+  10. `test_create_compaction_diff_persists_to_state`:
+      - Gọi `create_compaction_diff(messages, keep_recent=4)`.
+      - Kỳ vọng: Trả về diff gồm danh sách `RemoveMessage(id)` cho các message cũ và 1 `SystemMessage` mang tiền tố `[Tóm tắt hội thoại trước]: ...` để mutate trực tiếp vào LangGraph state.
+  11. `test_should_compact_route_conditional_edge`:
+      - Kiểm tra routing của conditional edge: vượt 40% window trả về `"compact"`, ngược lại trả về `"continue"`.
+
+### Test Suite 2: Long-Term Memory & PostgreSQL Persistence (`tests/test_product_memory_postgres.py`)
+- **Các ca kiểm thử**:
+  1. `test_init_memory_db_creates_table_safely`:
+     - Chạy hàm `init_memory_db()`.
+     - Xác nhận bảng `user_memories` và index được tạo thành công nếu có DB, hoặc log warning an toàn nếu không có DB.
+  2. `test_save_and_recall_long_term_postgres`:
+     - Gọi `save_to_long_term("user_123", "Tôi thích giám sát camera cổng số 1")`.
+     - Gọi `recall_long_term("user_123", "hôm nay xem camera cổng 1 nhé")`.
+     - Kỳ vọng: Kết quả trả về danh sách chứa fact đã lưu.
+  3. `test_user_isolation_strictly_enforced`:
+     - Lưu fact cho `user_A`: *"Tôi tên là Nguyễn Văn An"*.
+     - Lưu fact cho `user_B`: *"Tôi tên là Trần Thị Bình"*.
+     - Gọi `recall_long_term("user_A", "tôi tên là gì")` -> Chỉ thấy fact của `user_A`, tuyệt đối không có `user_B`.
+  4. `test_fallback_to_in_memory_when_db_down`:
+     - Giả lập lỗi kết nối PostgreSQL (mock exception).
+     - Gọi `save_to_long_term` và `recall_long_term`.
+     - Kỳ vọng: Không ném ngoại lệ; dữ liệu được lưu tạm và đọc ra từ in-memory fallback store.
+  5. `test_clear_long_term_by_user`:
+     - Gọi `clear_long_term("user_123")`.
+     - Xác nhận fact của `user_123` bị xóa, facts của user khác vẫn giữ nguyên.
+
+### Test Suite 3: TTL Cache & Expiration (`tests/test_product_memory_cache.py`)
+- **Các ca kiểm thử**:
+  1. `test_ttl_cache_hit_and_miss`:
+     - Set cache cho key `q_hash`.
+     - Lấy lại khi chưa hết hạn -> Cache Hit (trả về data nguyên vẹn).
+     - Query key khác -> Cache Miss (trả về `None`).
+  2. `test_ttl_cache_expires_after_ttl`:
+     - Set cache với `ttl=1` giây.
+     - Đợi 1.1 giây.
+     - Gọi `get_ttl_cached` -> Kỳ vọng trả về `None` và tự xóa key hết hạn khỏi bộ nhớ.
+  3. `test_make_cache_key_normalization`:
+     - Hai chuỗi khác hoa thường hoặc khoảng trắng đầu cuối (ví dụ: `"  Lưu lượng xe? "` và `"lưu lượng xe?"`) phải sinh ra cùng một `make_cache_key`.
+
+### Test Suite 4: Smart Extraction & Realtime Filtering
+- **File**: `tests/test_product_memory_cache.py`
+- **Các ca kiểm thử**:
+  1. `test_heuristic_extract_name_and_role`:
+     - Input: *"Chào bạn, tôi tên là Hùng, tôi phụ trách an ninh KCN Hưng Phú"*.
+     - Kỳ vọng: Trích xuất được fact tên và vai trò.
+  2. `test_extraction_ignores_realtime_traffic_stats`:
+     - Input: *"Hôm nay có 150 lượt xe tải vào cổng"* và câu trả lời thống kê.
+     - Với `detail="query_data"`, hàm `extract_memories` không được lưu số liệu thống kê realtime vào long-term memory.
 
 ---
 
-## 7. Đánh Giá Golden Dataset (30 Case) trên 8 Domain VMS
+## 3. Kịch bản kiểm thử thủ công (Manual / Smoke Checklist)
 
-Chạy bộ đánh giá chuẩn:
-```bash
-python3 eval/run.py
-```
-- **Kỳ vọng**: Đạt **30/30 passed (100%)** bao gồm cả 8 domain sự kiện VMS, 3 case prompt injection, và 3 case out_of_scope.
-
----
-
-## 8. Xuất & Kiểm Tra Sơ Đồ Đồ Thị ReAct Graph
-
-Chạy lệnh xuất sơ đồ sau khi hoàn tất toàn bộ code:
-```bash
-python3 -m src.agent.graph
-```
-- **Kỳ vọng**:
-  - Tạo/cập nhật thành công tệp ảnh `graph.png` và tệp HTML trực quan `graph_diagram.html`.
-  - Sơ đồ phản ánh chính xác cấu trúc ReAct Graph: `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`.
+| STT | Thao tác trên giao diện Web | Kỳ vọng quan sát được |
+|:---:|------------------------------|------------------------|
+| 1 | Mở web chat (`http://localhost:8080`), gửi: *"Chào bạn, tôi tên là Tuấn, tôi phụ trách giám sát an ninh ca đêm"* | Trợ lý phản hồi chào lịch sự, ghi nhận danh tính. Server trích xuất và lưu fact vào PostgreSQL (`user_memories`). |
+| 2 | Gửi câu hỏi tiếp theo trong cùng phiên: *"Khu vực tôi phụ trách là gì?"* | Trợ lý nhớ và trả lời: *"Bạn phụ trách giám sát an ninh ca đêm"*. (Kiểm tra Short-Term & Long-Term memory hoạt động). |
+| 3 | Mở tab ẩn danh mới hoặc bấm tạo phiên mới với cùng `user_id`: *"Tôi là ai?"* | Trợ lý vẫn trả lời đúng: *"Bạn là Tuấn, phụ trách an ninh ca đêm"* (chứng minh Long-Term memory đã được lưu bền vững vào PostgreSQL và nạp lại thành công). |
+| 4 | Trò chuyện liên tục qua hơn 10 câu hỏi nghiệp vụ | Trợ lý phản hồi nhanh, không bị lag hoặc đơ do tràn context; các chỉ dẫn quy tắc an toàn VMS vẫn được tuân thủ nghiêm ngặt (chứng minh Sliding Window & Instruction Re-injection hoạt động tốt). |
+| 5 | Gửi câu hỏi thống kê: *"Hôm nay có bao nhiêu lượt xe vào KCN?"* | Trợ lý truy vấn SQL và trả về số liệu chính xác kèm biểu đồ. Nếu bảng dữ liệu dài, kết quả được nén súc tích trước khi tổng hợp câu trả lời. |
+| 6 | Gửi lại ngay lập tức câu hỏi y hệt: *"Hôm nay có bao nhiêu lượt xe vào KCN?"* | Trợ lý trả về kết quả gần như ngay lập tức (< 50ms) do TTL Cache Hit, không thấy log query SQL hay gọi lại LLM trên console. |
+| 7 | Tạm dừng database PostgreSQL hoặc đổi cấu hình `DB_HOST=invalid` rồi gửi câu hỏi chat | Ứng dụng vẫn hoạt động bình thường, ghi nhận log warning nhẹ và tự động chuyển sang in-memory fallback mà không báo lỗi 500 ra giao diện. |

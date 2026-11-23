@@ -1,0 +1,933 @@
+"""Product test suite for Observability & Error Handling: Langfuse tracing, Trace caching & metrics telemetry, Error state acceptance & LLM/DB resilience."""
+from __future__ import annotations
+
+# ==============================================================================
+# --- Sourced from test_trace_cache.py ---
+# ==============================================================================
+
+"""Unit tests for Phase 5: Langfuse Observability & Token Metrics."""
+
+
+from contextlib import contextmanager
+from unittest.mock import MagicMock, patch
+import pytest
+from langchain_core.messages import AIMessage, ToolMessage
+
+from src.infra.llm.schemas import QueryResult
+
+from src.domain.observability.tracing import (
+    extract_token_usage,
+    trace_answer,
+    trace_step,
+    trace_stream,
+)
+from src.domain.observability.tracing import (
+    extract_token_usage as be_extract_token_usage,
+    trace_answer as be_trace_answer,
+    trace_step as be_trace_step,
+)
+
+
+def test_extract_token_usage_from_usage_metadata():
+    msg = AIMessage(content="Hello", usage_metadata={"input_tokens": 42, "output_tokens": 18, "total_tokens": 60})
+    usage = extract_token_usage(msg)
+    assert usage == {"prompt_tokens": 42, "completion_tokens": 18, "total_tokens": 60}
+
+
+def test_extract_token_usage_from_response_metadata():
+    msg = AIMessage(
+        content="Hello",
+        response_metadata={"token_usage": {"prompt_tokens": 50, "completion_tokens": 25, "total_tokens": 75}},
+    )
+    usage = extract_token_usage(msg)
+    assert usage == {"prompt_tokens": 50, "completion_tokens": 25, "total_tokens": 75}
+
+
+def test_extract_token_usage_from_dict():
+    data = {"usage": {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20}}
+    usage = extract_token_usage(data)
+    assert usage == {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20}
+
+
+def test_extract_token_usage_empty_returns_zeroes():
+    assert extract_token_usage(None) == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    assert extract_token_usage("") == {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
+def test_tracing_no_op_when_disabled(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", False)
+
+    with trace_answer("chat", "test question") as t:
+        t["output"] = {"status": "ok", "answer": "Test answer"}
+        assert t.get("_span") is None
+
+    with trace_step(None, "chon_tool", input="test question") as step:
+        step["output"] = {"tool": "count_vehicle_flow"}
+        assert step.get("_span") is None
+
+    tokens = list(trace_stream("stream", "test", iter(["hello", "world"])))
+    assert tokens == ["hello", "world"]
+
+
+def test_trace_answer_and_trace_step_with_langfuse(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_parent_span = MagicMock()
+    mock_child_span = MagicMock()
+
+    mock_langfuse.start_observation.return_value = mock_parent_span
+    mock_parent_span.start_observation.return_value = mock_child_span
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        with trace_answer("chat", "Có bao nhiêu xe vào hôm nay?", metadata={"endpoint": "/api/agent/stream"}) as parent_box:
+            assert parent_box["_span"] is mock_parent_span
+
+            with trace_step(parent_box["_span"], "chon_tool", input="Có bao nhiêu xe vào hôm nay?", as_type="tool") as child_box:
+                child_box["output"] = {"tool_calls": [{"name": "count_vehicle_flow", "args": {}}]}
+                child_box["usage"] = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+
+            parent_box["output"] = {"status": "ok", "answer": "Hôm nay có 150 lượt xe vào."}
+            parent_box["usage"] = {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120}
+
+    mock_langfuse.start_observation.assert_called_once()
+    update_kwargs = mock_parent_span.update.call_args[1]
+    assert update_kwargs["output"] == {"status": "ok", "answer": "Hôm nay có 150 lượt xe vào."}
+    assert update_kwargs["metadata"]["prompt_tokens"] == 100
+    assert update_kwargs["metadata"]["completion_tokens"] == 20
+    assert update_kwargs["metadata"]["total_tokens"] == 120
+    assert update_kwargs["metadata"]["latency_s"] >= 0
+    mock_parent_span.end.assert_called_once()
+    mock_langfuse.flush.assert_called_once()
+
+    child_update_kwargs = mock_child_span.update.call_args[1]
+    assert child_update_kwargs["output"] == {"tool_calls": [{"name": "count_vehicle_flow", "args": {}}]}
+    assert child_update_kwargs["metadata"]["prompt_tokens"] == 100
+    assert child_update_kwargs["metadata"]["latency_s"] >= 0
+    mock_child_span.end.assert_called_once()
+
+
+def test_trace_answer_exception_handling(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_span = MagicMock()
+    mock_langfuse.start_observation.return_value = mock_span
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        with pytest.raises(ValueError, match="Database error"):
+            with trace_answer("chat", "invalid query") as t:
+                raise ValueError("Database error")
+
+    mock_span.update.assert_any_call(level="ERROR", status_message="Database error")
+    mock_span.end.assert_called_once()
+    mock_langfuse.flush.assert_called_once()
+
+
+def test_trace_answer_propagates_langfuse_init_error(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    with patch("src.domain.observability.tracing._get_langfuse", side_effect=ConnectionRefusedError("Langfuse server down")):
+        with pytest.raises(ConnectionRefusedError, match="Langfuse server down"):
+            with trace_answer("chat", "Có bao nhiêu xe?") as t:
+                t["output"] = {"answer": "Có 10 xe"}
+
+
+def test_trace_answer_propagates_start_observation_error(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_langfuse.start_observation.side_effect = TimeoutError("Observation timeout")
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        with pytest.raises(TimeoutError, match="Observation timeout"):
+            with trace_answer("chat", "Có bao nhiêu xe?") as t:
+                t["output"] = {"answer": "Có 10 xe"}
+
+
+def test_trace_answer_propagates_flush_error(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_span = MagicMock()
+    mock_langfuse.start_observation.return_value = mock_span
+    mock_langfuse.flush.side_effect = RuntimeError("Network partition on flush")
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        with pytest.raises(RuntimeError, match="Network partition on flush"):
+            with trace_answer("chat", "Có bao nhiêu xe?") as t:
+                t["output"] = {"answer": "Có 10 xe"}
+
+    mock_span.end.assert_called_once()
+
+
+def test_trace_step_propagates_child_observation_error(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_parent = MagicMock()
+    mock_parent.start_observation.side_effect = RuntimeError("Child span creation error")
+
+    with pytest.raises(RuntimeError, match="Child span creation error"):
+        with trace_step(mock_parent, "chon_tool", input="Có bao nhiêu xe?") as step:
+            step["output"] = {"tool": "count_vehicle_flow"}
+
+
+def test_full_pipeline_trace_step_tree(monkeypatch):
+    """Kiểm tra toàn bộ cây span ReAct: trace cha (chat) -> chon_tool -> chay_tool -> dien_giai."""
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_parent = MagicMock()
+    mock_span_chon = MagicMock()
+    mock_span_chay = MagicMock()
+    mock_span_dien = MagicMock()
+
+    mock_langfuse.start_observation.return_value = mock_parent
+    mock_parent.start_observation.side_effect = [mock_span_chon, mock_span_chay, mock_span_dien]
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        with trace_answer("chat", "Biển số 65A-123.45 xuất hiện ở đâu?") as parent:
+            # Step 1: Chọn tool
+            with trace_step(parent["_span"], "chon_tool", input="Biển số 65A-123.45") as s1:
+                s1["output"] = {"tool_calls": [{"name": "trace_plate", "args": {"plate_text": "65A12345"}}]}
+                s1["usage"] = {"prompt_tokens": 150, "completion_tokens": 30, "total_tokens": 180}
+            
+            # Step 2: Chạy tool
+            with trace_step(parent["_span"], "chay_tool", input="trace_plate") as s2:
+                s2["output"] = {"tools": ["trace_plate"]}
+            
+            # Step 3: Diễn giải
+            with trace_step(parent["_span"], "dien_giai", input="kết quả") as s3:
+                s3["output"] = {"answer": "Xe xuất hiện tại Cổng 1 lúc 08:30.", "tools": "trace_plate"}
+
+            parent["output"] = {"status": "ok", "answer": "Xe xuất hiện tại Cổng 1 lúc 08:30."}
+            parent["usage"] = {"prompt_tokens": 150, "completion_tokens": 30, "total_tokens": 180}
+
+    # Verify calls
+    assert mock_parent.start_observation.call_count == 3
+    mock_span_chon.end.assert_called_once()
+    mock_span_chay.end.assert_called_once()
+    mock_span_dien.end.assert_called_once()
+    mock_parent.end.assert_called_once()
+    mock_langfuse.flush.assert_called_once()
+
+
+
+def test_trace_step_exception_handling(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_parent = MagicMock()
+    mock_child = MagicMock()
+    mock_parent.start_observation.return_value = mock_child
+
+    with pytest.raises(RuntimeError, match="SQL error"):
+        with trace_step(mock_parent, "chay_tool", input="query") as s:
+            raise RuntimeError("SQL error")
+
+    mock_child.update.assert_any_call(level="ERROR", status_message="SQL error")
+    mock_child.end.assert_called_once()
+
+
+def test_trace_stream_with_langfuse(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_parent = MagicMock()
+    mock_stream_span = MagicMock()
+    mock_langfuse.start_observation.return_value = mock_parent
+    mock_parent.start_observation.return_value = mock_stream_span
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        with trace_answer("chat", "câu hỏi") as parent:
+            tokens = list(trace_stream("stream_test", "câu hỏi", iter(["Hôm ", "nay ", "có ", "10 xe"]), parent=parent["_span"]))
+            assert "".join(tokens) == "Hôm nay có 10 xe"
+
+    mock_parent.start_observation.assert_called_once()
+    obs_kwargs = mock_parent.start_observation.call_args[1]
+    assert obs_kwargs["output"] == "Hôm nay có 10 xe"
+    assert obs_kwargs["metadata"]["streamed"] is True
+    mock_stream_span.end.assert_called_once()
+    assert mock_langfuse.flush.call_count >= 1
+
+
+def test_events_from_update_maps_node_io():
+    """astream updates → SSE: input/output lấy từ event node, không lặp state thô."""
+    from src.domain.agents.graph import _events_from_update
+
+    update = {
+        "result": None,
+        "events": [{
+            "node_id": "respond",
+            "input": {
+                "question": "Hôm nay có bao nhiêu lượt xe vào?",
+                "columns": ["direction", "so_luot"],
+                "rows": [{"direction": "IN", "so_luot": 1956}],
+                "row_count": 1,
+            },
+            "output": {
+                "answer_vi": "Hôm nay có 1956 lượt xe vào.",
+                "answer_source": "llm_text",
+            },
+            "meta": {"llm_used": True, "answer_source": "llm_text"},
+        }],
+    }
+    evs = _events_from_update("respond", update)
+    assert len(evs) == 1
+    assert evs[0]["node_id"] == "respond"
+    assert evs[0]["input"]["row_count"] == 1
+    assert evs[0]["output"]["answer_vi"] == "Hôm nay có 1956 lượt xe vào."
+    assert evs[0]["meta"]["answer_source"] == "llm_text"
+
+
+def test_events_from_update_rewrite_keeps_original_question():
+    """Event rewrite giữ input câu gốc (không phải question đã rewrite trong state)."""
+    from src.domain.agents.graph import _events_from_update
+
+    update = {
+        "rewritten": None,
+        "question": "Thống kê xe IN hôm nay",
+        "events": [{
+            "node_id": "rewrite",
+            "input": {"question": "Hôm nay có bao nhiêu lượt xe vào?"},
+            "output": {"rewritten": {"text": "Thống kê xe IN hôm nay"}},
+            "meta": {"llm_used": True},
+        }],
+    }
+    evs = _events_from_update("rewrite", update)
+    assert evs[0]["input"]["question"] == "Hôm nay có bao nhiêu lượt xe vào?"
+    assert evs[0]["output"]["rewritten"]["text"] == "Thống kê xe IN hôm nay"
+
+
+def test_graph_node_nested_substeps(monkeypatch):
+    """Substep agent/tool lồng dưới current_span (runtime context / contextvar)."""
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_root = MagicMock()
+    mock_tool = MagicMock()
+    mock_agent = MagicMock()
+    mock_root.start_observation.side_effect = [mock_tool, mock_agent]
+
+    from src.domain.observability.tracing import _current, current_span, trace_step
+
+    token = _current.set(mock_root)
+    try:
+        with patch("src.domain.observability.tracing._get_langfuse"):
+            state = {"question": "Hôm nay có bao nhiêu xe?"}
+            with trace_step(current_span(), "build_prompt", input={"question": state["question"]}, as_type="tool") as sub:
+                sub["output"] = {"user_prompt_len": 42}
+            with trace_step(current_span(), "generate_sql", input={"user_prompt_len": 42}, as_type="generation") as sub:
+                sub["output"] = {"text_len": 10}
+    finally:
+        _current.reset(token)
+
+    assert mock_root.start_observation.call_count == 2
+    names = [c[1]["name"] for c in mock_root.start_observation.call_args_list]
+    assert names == ["build_prompt", "generate_sql"]
+    mock_tool.end.assert_called_once()
+    mock_agent.end.assert_called_once()
+
+
+def test_validate_and_repair_sql_nested_validate_substep(monkeypatch):
+    """Orchestrator helper validate_and_repair_sql cũng ghi tool:validate_sql substep."""
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_parent = MagicMock()
+    mock_validate = MagicMock()
+
+    from src.domain.observability.tracing import _current
+
+    token = _current.set(mock_parent)
+    try:
+        from src.domain.agents.analytics.sql_agent.tools.validate import validate_and_repair_sql
+
+        from src.infra.storage.sql.validator import ValidationResult
+
+        with patch("src.domain.agents.analytics.sql_agent.tools.validate.validate_sql", return_value=ValidationResult(ok=True)):
+            mock_parent.start_observation.return_value = mock_validate
+            validate_and_repair_sql("SELECT 1", "test", user_id="u1", session_id="s1")
+    finally:
+        _current.reset(token)
+
+    mock_parent.start_observation.assert_called_once()
+    assert mock_parent.start_observation.call_args[1]["name"] == "validate_sql"
+    mock_validate.end.assert_called_once()
+
+
+def test_strip_thinking_removes_qwen_block():
+    from src.domain.agents.tools import strip_thinking as _strip_thinking
+
+    raw = "\x3cthink\x3einternal\x3c/think\x3e\nHôm nay có 10 xe vào."
+    assert _strip_thinking(raw) == "Hôm nay có 10 xe vào."
+
+
+def test_respond_offline_emits_stat_answer_event():
+    from src.domain.agents.nodes.respond import respond_node
+
+    out = respond_node({
+        "question": "Hôm nay có bao nhiêu lượt xe vào?",
+        "rows": [{"direction": "IN", "so_luot": 10}],
+        "columns": ["direction", "so_luot"],
+    })
+    ev = out["events"][0]
+    assert ev["output"]["answer_vi"]
+    assert ev["output"]["stat_answer"]["answer_vi"]
+    assert out["result"].answer
+
+
+def test_backend_monitoring_reexport():
+    assert be_extract_token_usage is extract_token_usage
+    assert be_trace_answer is trace_answer
+    assert be_trace_step is trace_step
+
+
+def test_trace_observation_types_explicit_as_type(monkeypatch):
+    """trace_step ghi đúng as_type khi caller truyền tường minh."""
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_parent = MagicMock()
+    mock_child = MagicMock()
+    mock_parent.start_observation.return_value = mock_child
+
+    with trace_step(mock_parent, "classify", input="test", as_type="agent") as _:
+        pass
+    assert mock_parent.start_observation.call_args[1]["as_type"] == "agent"
+
+    with trace_step(mock_parent, "validate_sql", input={"sql": "SELECT 1"}, as_type="tool") as _:
+        pass
+    assert mock_parent.start_observation.call_args[1]["as_type"] == "tool"
+
+    with trace_step(mock_parent, "recall", input="recall query", as_type="retriever") as _:
+        pass
+    assert mock_parent.start_observation.call_args[1]["as_type"] == "retriever"
+
+
+def _trace_name_recorder(monkeypatch, module_path: str) -> list[str]:
+    names: list[str] = []
+
+    @contextmanager
+    def _record(parent, name, **kwargs):
+        names.append(name)
+        yield {}
+
+    monkeypatch.setattr(f"{module_path}.trace_step", _record)
+    monkeypatch.setattr(f"{module_path}.current_span", lambda: MagicMock())
+    return names
+
+
+def test_v13_nested_trace_guardrail_recall_rewrite(monkeypatch):
+    """AC-T1: node graph emit đủ tên span con theo nested-trace-v13-design §3."""
+    g_names = _trace_name_recorder(monkeypatch, "src.domain.agents.nodes.guardrails")
+    from src.domain.agents.nodes.guardrails import guardrail_input_node
+
+    guardrail_input_node({"question": "xin chào", "user_id": "u", "session_id": "s"})
+    assert "check_input" in g_names
+    assert "redact_pii" in g_names
+
+    monkeypatch.setattr("src.infra.memory.longterm.recall_long_term", lambda *a, **k: [])
+    r_names = _trace_name_recorder(monkeypatch, "src.domain.agents.nodes.memory")
+    from src.domain.agents.nodes.memory import recall_node
+
+    recall_node({"question": "test", "user_id": "u", "session_id": "s"})
+    assert "recall_long_term" in r_names
+
+    from src.infra.llm.schemas import RewrittenQuestion
+
+    rw_names = _trace_name_recorder(monkeypatch, "src.domain.agents.nodes.rewrite_classify")
+    monkeypatch.setattr(
+        "src.domain.agents.nodes.rewrite.rewrite_question",
+        lambda q, history=None: RewrittenQuestion(text=q, sub_questions=[]),
+    )
+    monkeypatch.setattr(
+        "src.domain.agents.nodes.intent.classify_intent_safe",
+        lambda rewritten: MagicMock(intent="chat", answer="hi", reason="", chart_requested=False, chart_type=None),
+    )
+    monkeypatch.setattr(
+        "src.domain.agents.nodes.intent.sanitize_intent_result",
+        lambda res: res,
+    )
+    from src.domain.agents.nodes.rewrite_classify import rewrite_node, classify_node
+
+    rewrite_node({"question": "xin chào", "messages": [], "user_id": "u", "session_id": "s"})
+    assert "rewrite_question" in rw_names
+
+    classify_node(
+        {
+            "question": "xin chào",
+            "rewritten": RewrittenQuestion(text="xin chào", sub_questions=[]),
+            "user_id": "u",
+            "session_id": "s",
+        }
+    )
+    assert "classify_intent" in rw_names
+
+
+def test_v13_execute_sql_batch_nested_postgres_query(monkeypatch):
+    """AC-T2: sql_batch ≥2 → mỗi item có postgres_query substeps."""
+    names = _trace_name_recorder(monkeypatch, "src.domain.agents.analytics.sql_agent.tools.execute")
+    monkeypatch.setattr("src.infra.llm.client.use_offline_tools", lambda: True)
+    from src.domain.agents.analytics.sql_agent.tools.execute import execute_sql_node
+
+    execute_sql_node(
+        {
+            "sql_batch": [
+                {"sub_question": "a", "sql": "SELECT COUNT(*) FROM zone_event WHERE TRUE"},
+                {"sub_question": "b", "sql": "SELECT COUNT(*) FROM plate_event WHERE TRUE"},
+            ],
+            "user_id": "u",
+            "session_id": "s",
+        }
+    )
+    assert names.count("apply_org_scope") >= 2
+    assert names.count("revalidate_sql") >= 2
+    assert names.count("postgres_query") >= 2
+
+
+def test_trace_answer_token_sum_via_contextvar(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_span = MagicMock()
+    mock_langfuse.start_observation.return_value = mock_span
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        from src.domain.observability.tracing import add_request_tokens
+        with trace_answer("chat", "test sum tokens") as t:
+            # Mô phỏng gọi LLM 2 lần
+            add_request_tokens({"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+            add_request_tokens({"prompt_tokens": 20, "completion_tokens": 10, "total_tokens": 30})
+
+            t["output"] = {"answer": "done"}
+
+    update_kwargs = mock_span.update.call_args[1]
+    assert update_kwargs["metadata"]["prompt_tokens"] == 30
+    assert update_kwargs["metadata"]["completion_tokens"] == 15
+    assert update_kwargs["metadata"]["total_tokens"] == 45
+
+
+from fastapi.testclient import TestClient
+from src.main import app
+from src.infra.memory.ttl_cache import _cache, clear_ttl_cache
+from tests.helpers_stream import post_stream, sse_answer
+
+def test_cache_miss_then_hit_skips_run_agent(monkeypatch):
+    from src.domain.agents.graph import Agent_Output
+    from src.infra.llm.schemas import QueryResult
+
+    valid_answer = "Hôm nay có tổng cộng 100 chiếc xe các loại vào cổng KCN."
+    dummy_out = Agent_Output(question="Thống kê xe hôm nay", answer=valid_answer, query=QueryResult(tool="t", columns=["total"], rows=[[100]], row_count=1))
+    calls = {"n": 0}
+
+    def fake_stream(*_a, **_k):
+        calls["n"] += 1
+        yield {"__final_result__": dummy_out}
+
+    monkeypatch.setattr("src.main.run_agent_stream", fake_stream)
+    monkeypatch.setattr("src.main.settings.cache_enabled", True)
+    monkeypatch.setattr("src.main.settings.memory_ttl_seconds", 300)
+    clear_ttl_cache()
+    client = TestClient(app)
+    assert valid_answer in sse_answer(post_stream(client, "Thống kê xe hôm nay"))
+    assert calls["n"] == 1
+    assert valid_answer in sse_answer(post_stream(client, "Thống kê xe hôm nay"))
+    assert calls["n"] == 1
+
+def test_cache_expired_entry_misses(monkeypatch):
+    from src.domain.agents.graph import Agent_Output
+    from src.infra.llm.schemas import QueryResult
+
+    valid_answer = "Hôm nay có tổng cộng 100 chiếc xe các loại vào cổng KCN."
+    dummy_out = Agent_Output(question="Thống kê xe hôm nay", answer=valid_answer, query=QueryResult(tool="t", columns=["total"], rows=[[100]], row_count=1))
+    calls = {"n": 0}
+
+    def fake_stream(*_a, **_k):
+        calls["n"] += 1
+        yield {"__final_result__": dummy_out}
+
+    monkeypatch.setattr("src.main.run_agent_stream", fake_stream)
+    monkeypatch.setattr("src.main.settings.cache_enabled", True)
+    monkeypatch.setattr("src.main.settings.memory_ttl_seconds", 300)
+    clear_ttl_cache()
+    client = TestClient(app)
+    assert valid_answer in sse_answer(post_stream(client, "Thống kê xe hôm nay"))
+    assert calls["n"] == 1
+    key = list(_cache.keys())[0]
+    _cache[key]["expire_at"] = 0
+    assert valid_answer in sse_answer(post_stream(client, "Thống kê xe hôm nay"))
+    assert calls["n"] == 2
+
+def test_cache_disabled(monkeypatch):
+    from src.domain.agents.graph import Agent_Output
+    from src.infra.llm.schemas import QueryResult
+
+    valid_answer = "Hôm nay có tổng cộng 100 chiếc xe các loại vào cổng KCN."
+    dummy_out = Agent_Output(question="Thống kê xe hôm nay", answer=valid_answer, query=QueryResult(tool="t", columns=["total"], rows=[[100]], row_count=1))
+    calls = {"n": 0}
+
+    def fake_stream(*_a, **_k):
+        calls["n"] += 1
+        yield {"__final_result__": dummy_out}
+
+    monkeypatch.setattr("src.main.run_agent_stream", fake_stream)
+    monkeypatch.setattr("src.main.settings.cache_enabled", False)
+    monkeypatch.setattr("src.main.settings.memory_ttl_seconds", 300)
+    clear_ttl_cache()
+    client = TestClient(app)
+    assert valid_answer in sse_answer(post_stream(client, "Thống kê xe hôm nay"))
+    assert calls["n"] == 1
+    assert valid_answer in sse_answer(post_stream(client, "Thống kê xe hôm nay"))
+    assert calls["n"] == 2
+
+
+def test_every_graph_node_emits_full_input_output_and_session_user_meta(monkeypatch):
+    """Tất cả node trong graph đều ghi nhận đầy đủ input, output và metadata session/user."""
+    from langgraph.checkpoint.memory import MemorySaver
+
+    monkeypatch.setattr("src.infra.llm.client.use_offline_tools", lambda: True)
+    monkeypatch.setattr("src.domain.agents.graph.get_checkpointer", lambda: MemorySaver())
+    from src.domain.agents.graph import (Agent_Input, run_agent_stream, reset_graph)
+
+    reset_graph()
+    user_id = "user-trace-full"
+    session_id = "session-trace-full"
+
+    # 1. Query data pipeline
+    inp = Agent_Input(question="Hôm nay có bao nhiêu lượt xe vào?", user_id=user_id)
+    events = list(run_agent_stream(inp, session_id=session_id, user_id=user_id))
+
+    done_events = [ev for ev in events if ev.get("status") == "done" and ev.get("node_id") not in ("__answer__", "error")]
+    assert len(done_events) >= 6
+
+    for ev in done_events:
+        node_id = ev.get("node_id")
+        assert ev.get("input") is not None, f"Node {node_id} thiếu input"
+        assert ev.get("output") is not None, f"Node {node_id} thiếu output"
+        out = ev.get("output")
+        assert out is not None and out != "" and out != {}, f"Node {node_id} output bị rỗng"
+        assert isinstance(ev.get("input"), dict), f"Node {node_id} input phải là dict structured"
+        assert isinstance(out, dict), f"Node {node_id} output phải là dict structured"
+
+    execute_ev = next(ev for ev in done_events if ev.get("node_id") in ("execute", "execute_sql"))
+    assert "sql" in execute_ev["input"]
+    assert "rows" in execute_ev["output"]
+    assert "row_count" in execute_ev["output"]
+    assert "Trả về" not in str(execute_ev["output"])
+
+    # 2. Docs pipeline
+    inp_docs = Agent_Input(question="Làm sao để thêm camera trên AIOC?", user_id=user_id)
+    events_docs = list(run_agent_stream(inp_docs, session_id=session_id, user_id=user_id))
+    docs_done = [ev for ev in events_docs if ev.get("status") == "done" and ev.get("node_id") in ("retrieve_docs", "answer_from_docs")]
+    # subgraphs=True có thể emit mỗi node hơn 1 lần (ns root + team)
+    by_id = {ev["node_id"]: ev for ev in docs_done}
+    assert set(by_id) == {"retrieve_docs", "answer_from_docs"}
+    for ev in by_id.values():
+        assert ev.get("input")
+        assert ev.get("output")
+
+
+def test_run_agent_opens_root_trace_without_api_wrapper(monkeypatch):
+    """run_agent() tự mở root trace khi monitoring bật (eval/CLI cùng luồng domain)."""
+    from langgraph.checkpoint.memory import MemorySaver
+
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+    monkeypatch.setattr("src.infra.llm.client.use_offline_tools", lambda: True)
+    monkeypatch.setattr("src.domain.agents.graph.get_checkpointer", lambda: MemorySaver())
+    mock_langfuse = MagicMock()
+    mock_span = MagicMock()
+    mock_langfuse.start_observation.return_value = mock_span
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        from src.domain.agents.graph import (Agent_Input, run_agent, reset_graph)
+
+        reset_graph()
+        run_agent(
+            Agent_Input(question="Hôm nay có bao nhiêu lượt xe vào?"),
+            session_id="eval-trace-root",
+            trace_name="eval",
+            trace_metadata={"source": "eval", "trace_question": "Hôm nay có bao nhiêu lượt xe vào?"},
+        )
+
+    assert mock_langfuse.start_observation.called
+    assert mock_langfuse.start_observation.call_args[1].get("name") == "eval"
+    mock_span.update.assert_called()
+    mock_span.end.assert_called_once()
+
+
+def test_trace_observation_receives_session_and_user_metadata(monkeypatch):
+    """Langfuse start_observation nhận đầy đủ session_id và user_id từ API."""
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", True)
+
+    mock_langfuse = MagicMock()
+    mock_parent_span = MagicMock()
+    mock_child_span = MagicMock()
+
+    mock_langfuse.start_observation.return_value = mock_parent_span
+    mock_parent_span.start_observation.return_value = mock_child_span
+
+    with patch("src.domain.observability.tracing._get_langfuse", return_value=mock_langfuse):
+        from src.main import app
+        from fastapi.testclient import TestClient
+
+        client = TestClient(app)
+        resp = client.post(
+            "/api/agent/stream",
+            json={
+                "question": "Hôm nay có bao nhiêu xe vào?",
+                "session_id": "sess-langfuse-test",
+                "user_id": "user-langfuse-test",
+            },
+        )
+        assert resp.status_code == 200
+
+    # Kiểm tra start_observation của root span nhận session_id và user_id
+    assert mock_langfuse.start_observation.called
+    call_kwargs = mock_langfuse.start_observation.call_args[1]
+    assert call_kwargs.get("session_id") == "sess-langfuse-test" or call_kwargs.get("metadata", {}).get("session_id") == "sess-langfuse-test"
+    assert call_kwargs.get("user_id") == "user-langfuse-test" or call_kwargs.get("metadata", {}).get("user_id") == "user-langfuse-test"
+
+    # Kiểm tra child spans cũng nhận session_id và user_id
+    assert mock_parent_span.start_observation.called
+    child_kwargs = mock_parent_span.start_observation.call_args[1]
+    meta = child_kwargs.get("metadata", {})
+    assert meta.get("user_id") == "user-langfuse-test"
+    assert meta.get("session_id") == "sess-langfuse-test"
+
+
+
+
+# ==============================================================================
+# --- Sourced from test_phase5_error_states_acceptance.py ---
+# ==============================================================================
+
+"""Phase 5 Acceptance Tests — Validation and Error States.
+
+Kiểm tra 5 tiêu chí của Phase 5:
+1. SQL invalid / hết lần repair -> message ngắn tiếng Việt; không crash stream.
+2. LLM timeout / DB fail -> message ngắn, không leak SQL/traceback.
+3. Classify lỗi -> fallback an toàn, không im lặng.
+4. Empty số liệu -> trả lời đúng chuẩn (chứa số "0").
+5. SSE stream __answer__ trả về status error kèm thông báo thân thiện.
+"""
+
+
+import json
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from src.domain.agents.graph import (Agent_Input, run_agent, run_agent_stream)
+from src.domain.agents.nodes.intent import classify_intent_safe
+from src.infra.storage.sql.validator import ValidationResult
+from src.domain.guardrails import empty_stat_reply
+from src.main import USER_ERROR_MAX_LEN, _format_error_message, app
+
+client = TestClient(app)
+
+
+def test_sql_repair_max_exhausted_yields_friendly_message_no_crash():
+    """1. SQL invalid / hết lần repair: trả về message ngắn tiếng Việt trong stream mà không crash."""
+    from src.infra.memory.ttl_cache import _cache
+    _cache.clear()
+    inp = Agent_Input(question="Hôm nay có bao nhiêu xe vào?")
+
+    # Mock validate_sql luôn trả về lỗi để hết số lần repair (settings.sql_repair_max)
+    with (
+        patch("src.infra.llm.client.use_offline_tools", return_value=True),
+        patch(
+            "src.domain.agents.analytics.sql_agent.tools.validate.validate_sql",
+            return_value=ValidationResult(ok=False, reason="Cú pháp không hợp lệ"),
+        ),
+    ):
+        res = client.post(
+            "/api/agent/stream",
+            json={"question": inp.question, "session_id": "test-repair-fail"},
+        )
+
+    assert res.status_code == 200
+    events = []
+    for line in res.text.splitlines():
+        if line.startswith("data: "):
+            raw = line[6:].strip()
+            if raw and raw != "[DONE]":
+                events.append(json.loads(raw))
+
+    node_ids = [e.get("node_id") for e in events]
+    assert "generate_sql" in node_ids
+    assert "validate_sql" in node_ids
+    assert "repair_sql" in node_ids
+    assert "__answer__" in node_ids
+
+    answer_ev = next(e for e in events if e.get("node_id") == "__answer__")
+    ans_text = answer_ev.get("output", "")
+    assert "Lỗi" in ans_text or "không hợp lệ" in ans_text or "Không thể" in ans_text
+    assert len(ans_text) <= 300
+
+
+def test_llm_timeout_and_db_fail_message_no_leak():
+    """2. LLM timeout / DB fail: message ngắn thân thiện, không leak traceback hay raw SQL."""
+    exc_timeout = TimeoutError("Request timed out after 30s to http://192.168.1.198:11434")
+    exc_db = RuntimeError("psycopg2.OperationalError: could not connect to server 192.168.1.198 port 5432")
+
+    msg_timeout = _format_error_message(exc_timeout)
+    msg_db = _format_error_message(exc_db)
+
+    assert len(msg_timeout) <= USER_ERROR_MAX_LEN
+    assert len(msg_db) <= USER_ERROR_MAX_LEN
+    assert "192.168.1.198" not in msg_timeout
+    assert "192.168.1.198" not in msg_db
+    assert "traceback" not in msg_timeout.lower()
+    assert "traceback" not in msg_db.lower()
+
+
+def test_classify_error_safe_fallback_not_silent():
+    """3. Classify lỗi: fallback an toàn sang query_data, không trả về rỗng hay im lặng."""
+    from src.infra.llm.schemas import RewrittenQuestion
+
+    q = RewrittenQuestion(text="Hôm nay có cảnh báo cháy hoặc khói không?")
+    with (
+        patch("src.domain.agents.nodes.intent.use_offline_tools", return_value=False),
+        patch("src.domain.agents.nodes.intent.invoke_structured", side_effect=Exception("LLM down")),
+    ):
+        res = classify_intent_safe(q)
+
+    assert res.intent in ("query_data", "docs", "chat", "out_of_scope")
+    assert res.intent == "query_data"  # Domain cháy khói -> query_data fallback
+
+
+def test_empty_statistical_data_contains_zero():
+    """4. Empty số liệu: trả lời chuẩn tiếng Việt có chứa số '0'."""
+    ans = empty_stat_reply()
+    assert "0" in ans
+    assert "không có" in ans.lower() or "không tìm thấy" in ans.lower()
+
+
+def test_stream_error_emits_friendly_answer_status_error():
+    """5. Lỗi stream phát ra __answer__ status error với câu thông báo ngắn gọn."""
+    from src.infra.memory.ttl_cache import _cache
+    _cache.clear()
+
+    with patch(
+        "src.domain.agents.graph.run_agent_stream",
+        side_effect=RuntimeError("Database connection lost"),
+    ):
+        res = client.post(
+            "/api/agent/stream",
+            json={"question": "Hôm nay có bao nhiêu xe vào?"},
+        )
+
+    assert res.status_code == 200
+    events = []
+    for line in res.text.splitlines():
+        if line.startswith("data: "):
+            raw = line[6:].strip()
+            if raw and raw != "[DONE]":
+                events.append(json.loads(raw))
+
+    answer_ev = next(e for e in events if e.get("node_id") == "__answer__")
+    assert answer_ev.get("status") == "error"
+    ans_text = answer_ev.get("output", "")
+    assert "Lỗi" in ans_text or "không thể" in ans_text.lower()
+    assert "Database connection lost" not in ans_text  # Sanitized
+
+# ==============================================================================
+# --- Sourced from test_phase5_llm_db_errors.py ---
+# ==============================================================================
+
+"""Phase 5 — Lỗi LLM/DB: message ngắn trên UI, stream không crash."""
+
+
+import json
+from unittest.mock import patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from src.main import USER_ERROR_MAX_LEN, _format_error_message, _short_user_error, app
+
+client = TestClient(app)
+
+
+def test_short_user_error_truncates():
+    long_msg = "x" * 300
+    out = _short_user_error(long_msg)
+    assert len(out) <= USER_ERROR_MAX_LEN
+    assert out.endswith("…")
+
+
+def test_format_error_message_no_stack_or_sql_leak():
+    exc = RuntimeError("Traceback (most recent call last): SELECT * FROM secret_table")
+    msg = _format_error_message(exc)
+    assert "traceback" not in msg.lower()
+    assert "select *" not in msg.lower()
+    assert len(msg) <= USER_ERROR_MAX_LEN
+
+
+@pytest.mark.parametrize(
+    "exc,keyword",
+    [
+        (RuntimeError("clickhouse connect error: refused"), "clickhouse"),
+        (RuntimeError("psycopg2.OperationalError: connection refused"), "database"),
+        (TimeoutError("Request timed out"), "thời gian"),
+        (RuntimeError("openai.RateLimitError: 429"), "rate limit"),
+    ],
+)
+def test_format_error_messages_short_vietnamese(exc, keyword):
+    msg = _format_error_message(exc)
+    assert keyword.lower() in msg.lower()
+    assert len(msg) <= USER_ERROR_MAX_LEN
+
+
+def test_stream_db_error_yields_answer_not_crash(monkeypatch):
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", False)
+    from src.infra.memory.ttl_cache import _cache
+
+    _cache.clear()
+    with patch(
+        "src.domain.agents.graph.run_agent_stream",
+        side_effect=RuntimeError("clickhouse connect error: connection refused"),
+    ):
+        res = client.post(
+            "/api/agent/stream",
+            json={"question": "Hôm nay có bao nhiêu lượt xe vào?"},
+        )
+    assert res.status_code == 200
+    events = []
+    for line in res.text.splitlines():
+        if line.startswith("data: "):
+            payload = line[6:].strip()
+            if payload and payload != "[DONE]":
+                events.append(json.loads(payload))
+    answer = next(ev for ev in events if ev.get("node_id") == "__answer__")
+    assert answer.get("status") == "error"
+    assert "clickhouse" in str(answer.get("output", "")).lower()
+    assert "traceback" not in str(answer.get("output", "")).lower()
+
+
+def test_stream_graph_thread_error_yields_friendly_answer(monkeypatch):
+    """Lỗi trong graph thread → __answer__ error, không crash generator."""
+    monkeypatch.setattr("src.domain.observability.tracing.settings.monitoring_enabled", False)
+    from src.infra.memory.ttl_cache import _cache
+
+    _cache.clear()
+
+    def _boom(*_args, **_kwargs):
+        yield {"node_id": "recall", "status": "running"}
+        raise RuntimeError("LLM API timeout after 30s")
+
+    with patch("src.domain.agents.graph.run_agent_stream", side_effect=_boom):
+        res = client.post(
+            "/api/agent/stream",
+            json={"question": "Hôm nay có bao nhiêu xe vào?"},
+        )
+    assert res.status_code == 200
+    assert "__answer__" in res.text
+    assert "mô hình ai" in res.text.lower() or "thời gian" in res.text.lower()
+
+
+def test_frontend_stream_error_handling_wiring():
+    res = client.get("/app.js")
+    js = res.text if res.status_code == 200 else open("frontend/app.js", encoding="utf-8").read()
+    assert "lastStreamError" in js
+    assert "event.status === 'error'" in js or "event.status === \"error\"" in js
+    assert "event.node_id === 'error'" in js or 'event.node_id === "error"' in js
+

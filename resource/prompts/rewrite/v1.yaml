@@ -1,0 +1,61 @@
+name: rewrite
+version: 1
+model: qwen3-4b
+description: Chuẩn hóa câu hỏi tiếng Việt, tách ý, trích filters/time_range/intent_hint
+owner: team-ai@kcn.vn
+created: "2026-09-22"
+changelog: "v1.4: decompose gom rewrite; câu đơn passthrough; tối đa 4 sub_questions; /nothink"
+template: |
+  /nothink
+  Chuẩn hóa + decompose câu hỏi tiếng Việt cho trợ lý VMS KCN Hưng Phú + AIOC (https://aioc.atin.vn/devices).
+  Trả structured: text, sub_questions, filters, time_range, intent_hint.
+
+  DECOMPOSE (sub_questions):
+  - Chia câu phức tạp thành 2–4 sub-questions đơn giản; mỗi câu trả lời độc lập được bằng SQL hoặc docs.
+  - Câu đã đơn giản (một ý): sub_questions = [một câu duy nhất] — KHÔNG tách thêm.
+  - Mỗi sub-question: súc tích, có time_range + domain nếu câu gốc có.
+  - Tối đa 4 sub_questions (trừ *tất cả event* → đúng 5 domain).
+
+  OUTPUT:
+  - `text`: MỘT dòng tóm tắt ý chính.
+  - `sub_questions`: danh sách câu con (xem DECOMPOSE).
+
+  GIỮ NGUYÊN thông tin quan trọng khi tách:
+  - Biển số, camera, zone, URL AIOC/devices.
+  - Loại xe cụ thể (ô tô, xe máy, xe tải, xe buýt).
+  - Biểu đồ/phân loại/theo giờ/hãng/hướng nếu có.
+
+  PHÂN BIỆT DOMAIN & ĐỐI TƯỢNG (không hoán đổi, không rập khuôn):
+  - PLATE (Phương tiện): Chỉ domain này mới dùng "xe", "phương tiện", "biển số", "lượt xe".
+  - ZONE (Vùng cấm / Hàng rào ảo): Dùng "sự kiện xâm nhập", "phát hiện leo trèo / vượt hàng rào". TUYỆT ĐỐI KHÔNG tự gán chữ "xe" nếu câu hỏi không nêu rõ xe xâm nhập.
+  - FACE (Khuôn mặt): Dùng "lượt nhận diện khuôn mặt", "người / đối tượng".
+  - FIGHT (Ẩu đả): Dùng "vụ / sự kiện ẩu đả, đánh nhau".
+  - CROWD (Đám đông): Dùng "sự kiện tụ tập đám đông".
+  - FIRE/SMOKE (Cháy khói): Dùng "sự kiện / cảnh báo cháy hoặc khói".
+  - WATER (Ngập lụt / mực nước): Dùng "mực nước", "sự kiện ngập lụt".
+  - AIOC/howto: Hướng dẫn sử dụng / cấu hình hệ thống.
+  - BIỂU ĐỒ DỮ LIỆU (vẽ sơ đồ + số liệu/event) → query_data, KHÔNG howto
+  - Sơ đồ AIOC/howto (đăng nhập, thêm camera) → howto
+
+  filters: vehicle_type, direction, license_plate_text, event_type (khi rõ).
+  time_range: today | yesterday | this_month | YYYY-MM-DD | YYYY-MM-DD..YYYY-MM-DD
+  intent_hint: query_data | how_to | troubleshoot | concept | out_of_scope
+
+  Ví dụ 1 (Đơn domain):
+  Gốc: "Xe 15C4384 hôm nay qua vùng cấm nào, và giờ nào xâm nhập nhiều nhất?"
+  text: "Truy vết xe 15C4384 và thống kê xâm nhập hôm nay"
+  sub_questions:
+  - "Hôm nay xe biển số 15C4384 đi qua khu vực xâm nhập nào?"
+  - "Hôm nay khung giờ nào có nhiều sự kiện xâm nhập nhất?"
+
+  Ví dụ 2 (Hội thoại nối tiếp chuyển domain, không mang từ xe sang):
+  Trước: "Hôm nay có bao nhiêu lượt event phương tiện?" -> Hiện tại: "Vậy còn vùng cấm"
+  text: "Thống kê số lượng sự kiện xâm nhập vùng cấm hôm nay"
+  sub_questions:
+  - "Hôm nay có bao nhiêu sự kiện xâm nhập hoặc leo trèo vùng cấm?"
+
+  Ví dụ 3 (Nối tiếp sau câu vẽ biểu đồ — BẮT BUỘC giữ visualization):
+  Trước: "Vẽ biểu đồ xe ra vào hôm nay" -> Hiện tại: "Vậy còn vùng cấm thì sao?"
+  text: "Vẽ biểu đồ thống kê sự kiện xâm nhập vùng cấm hôm nay"
+  sub_questions:
+  - "Vẽ biểu đồ số sự kiện xâm nhập hoặc leo trèo vùng cấm hôm nay"

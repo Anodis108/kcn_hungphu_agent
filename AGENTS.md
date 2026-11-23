@@ -1,41 +1,41 @@
-# AGENTS.md
+# AGENTS.md — agent dong
 
-Hướng dẫn và quy tắc phát triển dành cho Coding Agent trong dự án `kcn_hungphu_agent` (agent_stat_v3).
+Hướng dẫn thực thi chuẩn cho AI agent trong `agent-harness/dong` theo phương pháp Spec-Driven Development.
 
-## Nguyên Tắc Cốt Lõi
+## Trạng thái dự án (v9)
 
-1. **Luôn đọc Spec trước khi code (Always read the specs before coding)**:
-   - Luôn đọc các tài liệu trong thư mục `/specs` (`product-spec.md`, `implementation-plan.md`, `test-plan.md`) trước khi bắt đầu bất kỳ task nào.
-
-2. **Chỉ triển khai một phase hoặc một task tại một thời điểm (Implement only one phase or task at a time)**:
-   - Triển khai tuần tự theo đúng checklist trong `specs/implementation-plan.md`.
-   - Không nhảy cóc phase hoặc gộp nhiều task lớn làm một.
-
-3. **Giữ ứng dụng đơn giản (Keep the app simple)**:
-   - Ưu tiên giải pháp tinh gọn, dễ đọc, dễ bảo trì (tham khảo `llm-engineer-demo`).
-   - Không over-engineer, không viết code phức tạp quá mức cần thiết.
-
-4. **Không thêm thư viện không cần thiết (Do not add unnecessary libraries)**:
-   - Tận dụng tối đa các thư viện có sẵn trong `requirements.txt`.
-   - Không tự ý cài đặt thêm package ngoài trừ khi spec yêu cầu rõ ràng.
-
-5. **Không thay đổi kiến trúc trừ khi Spec được cập nhật (Do not change architecture unless the spec is updated)**:
-   - Tuân thủ ranh giới phân tách 2 tầng: `frontend/` (Claude UI) và `ai_backend/` (FastAPI, ReAct Agent).
-   - **Giữ nguyên kiến trúc ReAct Agent hiện tại** (`build_react_subgraph`: `seed` $\rightarrow$ `agent` $\leftrightarrow$ `tools` $\rightarrow$ `pack`) cho 8 domain sự kiện VMS để dễ dàng so sánh hiệu năng.
-
-6. **Cập nhật `specs/change-log.md` sau mỗi lần triển khai (After each implementation, update specs/change-log.md)**:
-   - Ghi lại ngắn gọn, rõ ràng: những file đã tạo/sửa (`Added`, `Changed`), và kết quả kiểm thử (`Verified`).
-   - Đánh dấu `[x]` vào checklist tương ứng trong `specs/implementation-plan.md`.
-
-7. **Giải thích cách kiểm thử sau mỗi lần triển khai (After each implementation, explain how to test the change)**:
-   - Cung cấp câu lệnh chạy ứng dụng cụ thể.
-   - Hướng dẫn các bước kiểm thử thủ công và kịch bản test tương ứng.
-   - Nêu rõ các issue đã biết (nếu có).
+- **Mục tiêu v9**: Xây dựng hệ thống Memory & Context Engineering 3 tầng (Short-Term, Long-Term, TTL Cache) lưu trữ bền vững trên PostgreSQL (bảng `user_memories`), tích hợp kỹ thuật Sliding Window, nguyên tắc 40-60%, Summarization, Tool Output Compression và Re-injecting Instructions.
+- **Tài liệu bắt buộc đọc trước khi code**:
+  1. [`specs/product-spec.md`](specs/product-spec.md) — Yêu cầu nghiệp vụ và tiêu chí nghiệm thu.
+  2. [`specs/implementation-plan.md`](specs/implementation-plan.md) — 7 phase triển khai tuần tự.
+  3. [`specs/test-plan.md`](specs/test-plan.md) — Kế hoạch kiểm thử tự động và thủ công.
+  4. [`specs/change-log.md`](specs/change-log.md) — Nhật ký thay đổi qua từng bước.
 
 ---
 
-## Lưu Ý Bổ Sung Cho Dự Án
+## Quy tắc thực thi (Rules)
 
-- **Bảo Mật Secrets**: Tuyệt đối không commit API key thật (`sk-proj-...`, `lgw_...`) hoặc mật khẩu DB vào git hay `.env.example`.
-- **Langfuse Credentials**: Mật khẩu đăng nhập mặc định cho Langfuse Dashboard là `Atin@123#` (User: `admin@agent-atin.local`).
-- **Graph Visualization**: Sau khi hoàn thành toàn bộ code, chạy lệnh cập nhật sơ đồ `python3 -m src.agent.graph` (`graph.png`, `graph_diagram.html`).
+1. **Always read the specs before coding**: Luôn đọc kỹ `specs/product-spec.md` và `specs/implementation-plan.md` trước khi viết bất kỳ dòng code nào.
+2. **Implement only one phase or task at a time**: Chỉ thực hiện duy nhất 1 phase hoặc 1 task (`[ ]`) tại một thời điểm. Không nhảy cóc, không gộp nhiều task.
+3. **Keep the app simple**: Giữ mã nguồn đơn giản, rõ ràng, tập trung vào phạm vi MVP, không làm phức tạp hóa vấn đề (over-engineering).
+4. **Do not add unnecessary libraries**: Tận dụng tối đa thư viện và công cụ sẵn có trong dự án, không tự ý cài đặt thêm dependency nếu không bắt buộc.
+5. **Do not change architecture unless the spec is updated**: Tuyệt đối không thay đổi kiến trúc hệ thống trừ khi spec đã được thảo luận và cập nhật trước.
+6. **After each implementation, update specs/change-log.md**: Sau mỗi lần hoàn thành 1 task, đánh dấu `[x]` trong `specs/implementation-plan.md` và ghi nhận chi tiết vào `specs/change-log.md`.
+7. **After each implementation, explain how to test the change**: Luôn giải thích rõ ràng và cung cấp lệnh/kịch bản kiểm thử cụ thể để người dùng có thể tự kiểm tra lại thay đổi.
+
+---
+
+## Lệnh kiểm thử nhanh
+
+```bash
+cd agent-harness/dong
+
+# 1. Chạy toàn bộ unit test suite
+PYTHONPATH=. pytest -q
+
+# 2. Chạy riêng bộ kiểm thử memory & context
+PYTHONPATH=. pytest tests/test_product_memory_context.py tests/test_product_memory_cache.py tests/test_product_memory_postgres.py -v
+
+# 3. Khởi động backend local
+uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+```
