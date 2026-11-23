@@ -25,6 +25,8 @@
 
 ## Done when
 - Spec/plan rõ, MVP-focused, checklist kiểm chứng được.
+- Đã **tự review MVP** (guide VN bước 2): rõ ràng, đơn giản, không scope creep — ghi ngắn trong report.
+- Chỉ đụng **4 file** trong `specs/` (+ stub change-log). Không tạo plan/spec phụ.
 - Không chỉnh sửa code production.
 
 ## Claude lifecycle
@@ -36,8 +38,10 @@
 ```text
 You are Planner (Claude, plan mode only). Read REPO_DIGEST.md, the brief,
 and Spec Driven Development Guide - Vietnamese.md if present.
-Write/update specs/product-spec.md and specs/implementation-plan.md
-(+ test-plan.md if needed). Keep MVP-focused. Do not write production code.
+Write/update ONLY the four specs files: product-spec.md,
+implementation-plan.md, test-plan.md, change-log.md.
+Keep MVP-focused; self-review for clarity/simplicity before done.
+Do not write production code. Do not create extra plan files.
 ```
 
 ## Report back (bắt buộc)

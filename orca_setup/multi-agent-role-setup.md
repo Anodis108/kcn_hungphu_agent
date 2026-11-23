@@ -96,10 +96,12 @@ grep -q '.local/bin' ~/.bashrc || echo 'export PATH="$HOME/.local/bin:$PATH"' >>
 |---|---------|-----|-------|------|
 | 1 | Explorer | Antigravity | Nặng | Đọc repo → `REPO_DIGEST.md` |
 | 2 | Planner | Claude (plan) | Nhẹ | Digest → `specs/` (guide VN) → **logout Claude** |
-| 3 | Implementer | Antigravity | Nặng nhất | Worktree `new-child`, implement + test xanh |
-| 4 | Test writer | Cursor | Vừa | Test từ spec (song song 3) |
-| 5a | Reviewer | Cursor | Vừa | Requirements / edge |
+| 3 | Implementer | Antigravity | Nặng nhất | Worktree `new-child`, **một** task `[ ]` rồi dừng chờ review |
+| 4 | Test writer | Cursor | Vừa | Test từ acceptance **cùng** task (song song 3) |
+| 5a | Reviewer | Cursor | Vừa | pass/fail/missing vs spec → `Approved`\|`Blocked` (cổng SDD) |
 | 5b | Reviewer | Claude | Nhẹ | Filtered diff → **logout Claude** |
+
+**Cổng SDD (bắt buộc):** Implement → Review → Fix-only nếu Blocked → `Approved` → mới task kế. Chi tiết: `ORCA-AGENT-SETUP.md` §6c.
 
 Chi tiết prompt: `roles/0N-*.md`.
 
@@ -190,9 +192,11 @@ orca-roles-run --brief "..." --dry-run
 
 Coordinator:
 
-1. Để Orca wake khi worker báo `worker_done` (đừng poll).
-2. Sau role **2** và **5b**: chạy `orca-claude-after-task --run <runId>`.
-3. State file: `.orca-roles-run-state.json` trong workdir.
+1. **Ngay sau `worker-start`:** `orca-coord-watch --run <runId> --terminal <coordTerm> --workdir <project>` (§15e). Cursor pane thường không auto-wake — đừng chỉ “end turn và hy vọng”.
+2. Khi nhận `[ORCA auto-wake]`: `orca-coord-drain` → đọc report → tóm tắt user → dispatch tiếp. Không chờ user nhắc.
+3. Sau role **2** và **5b**: chạy `orca-claude-after-task --run <runId>`.
+4. State file: `.orca-roles-run-state.json` trong workdir.  
+   *(Lưu ý: `orca-coord-watch` peek inbox — không thay `orchestration check` của agent; không dùng script poll thay skill orchestration của worker.)*
 
 ---
 

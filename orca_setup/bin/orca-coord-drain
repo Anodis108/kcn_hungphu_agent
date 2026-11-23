@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# orca-coord-drain — Coordinator turn-start helper
+# Prints newest worker_done + agent-reports so the coordinator can act.
+#
+#   orca-coord-drain [--run RUN] [--workdir PATH]
+set -euo pipefail
+ORCA="${ORCA_CLI_COMMAND:-$HOME/.orca/cli/bin/orca}"
+RUN=""; WORKDIR="$(pwd)"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --run) RUN=$2; shift 2 ;;
+    --workdir) WORKDIR=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [[ -z "$RUN" ]]; then
+  RUN="$("$ORCA" orchestration run-current --json 2>/dev/null | python3 -c 'import json,sys;print(json.load(sys.stdin)["result"]["runId"])' 2>/dev/null || true)"
+fi
+echo "=== run-current / target ==="
+echo "run=${RUN:-none}"
+echo "workdir=$WORKDIR"
+echo
+echo "=== coord-watch ==="
+orca-coord-watch --status 2>&1 || true
+echo
+echo "=== newest agent-reports (5) ==="
+ls -lt "$WORKDIR/specs/agent-reports" 2>/dev/null | head -6 || echo "(none)"
+echo
+if [[ -n "$RUN" ]]; then
+  echo "=== inbox worker_done (top 8) ==="
+  "$ORCA" orchestration inbox --terminal "run:${RUN}" --limit 8 --json 2>/dev/null | python3 -c '
+import json,sys
+d=json.load(sys.stdin)
+for m in d.get("result",{}).get("messages",[])[:8]:
+  if m.get("type") and m.get("type")!="worker_done": continue
+  print(m.get("id"), "|", (m.get("subject") or "")[:90])
+' || true
+fi
+echo
+echo "=== action ==="
+echo "Read newest report(s), summarize for user, dispatch next role, update session-handoff."

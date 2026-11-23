@@ -1,5 +1,12 @@
 # Change Log — agent dong
 
+## 2026-11-23 — Khôi phục session `update-quy-trình` vào `fix-product`
+
+- Restore: `AGENTS.md` (rules 8–10 + SDD loop), `specs/gap-analysis-quy-trinh-product-agent.md` (+ pointer `resource/`), `specs/session-handoff.md`.
+- Restore `orca_setup`: §6c SDD review gate, §15e auto-wake, roles gap tracker, `bin/orca-coord-watch` + `orca-coord-drain`.
+- Zip: `resource/orca_setup.zip`.
+- Nguồn: playbook `~/orca/playbooks` + nội dung session trước (worktree cũ đã mất, chưa commit).
+
 ## 2026-11-23 — Xóa `specs-extra` + `superpowers` docs
 
 - Xóa `resource/docs/specs-extra/` và `resource/docs/superpowers/` (không giữ design/archive phụ).

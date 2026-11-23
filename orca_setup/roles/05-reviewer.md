@@ -13,14 +13,19 @@ Tuân `ORCA-AGENT-SETUP.md` §18 và `_VERIFY.md`.
 | **Token** | Vừa |
 | **Focus** | Requirements, edge cases, missing tests vs `specs/product-spec.md` |
 
-### Cách làm
+### Cách làm (guide VN bước 7 — cổng §6c)
 1. Xác nhận tool đã chạy (đọc report Implementer/`pytest`); nếu chưa có bằng chứng tool → **Blocked** hoặc tự chạy rồi mới review.
-2. Review **đối kháng**: tìm lỗi correctness / acceptance; không khen chung.
-3. Mỗi finding = bằng chứng (test, lệnh, path/code). Không rewrite lớn.
+2. So feature vừa làm với `specs/product-spec.md` + `specs/test-plan.md`: **what passes / what fails / what is missing**.
+3. Review **đối kháng**: chỉ lỗi correctness / acceptance; không khen chung.
+4. Mỗi finding = bằng chứng (test, lệnh, path/code). Không rewrite lớn.
+5. `next_hint`: nếu `Blocked` → Implementer/Test **Fix-only cùng task**; nếu `Approved` → Coordinator mới được dispatch task `[ ]` kế (hoặc 5b nếu cần).
+6. Nếu `Approved` và task gắn G\*: kiểm tra / bổ sung cập nhật `specs/gap-analysis-quy-trinh-product-agent.md` (hàng G\* + §5 lịch sử). Thiếu cập nhật → ghi Important hoặc tự sửa tracker trước khi Approved.
 
 ### Done when
-- Report: Critical / Important / Minor + `Approved` hoặc `Blocked`
+- Report: pass/fail/missing + Critical / Important / Minor + `Approved` hoặc `Blocked`
 - File inbox + `worker_done` (`_REPORT_BACK.md`)
+- Gap tracker đã khớp trạng thái G\* khi Approved (hoặc N/A nếu task không map G)
+- **Không** bảo “sang task kế” khi còn `Blocked`
 
 ## 5b — Claude (round 2)
 

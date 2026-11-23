@@ -40,8 +40,17 @@ Thất bại → `--outcome failed` + lý do trong body.
 
 Nếu **không** có Task/Dispatch (chỉ `agent launch` / chat thủ công): vẫn **bắt buộc** bước 1 (file inbox); thêm một dòng rõ `READY for coordinator` ở cuối pane.
 
-## 3) Coordinator sau khi nhận
+## 3) Coordinator — nhận tín hiệu & phản hồi (bắt buộc)
 
-1. Đọc report (wake `worker_done` **hoặc** `specs/agent-reports/` mới nhất).
-2. Tóm tắt cho user.
-3. Chọn hướng đi tiếp / dispatch role kế (§15b) — không bỏ lửng.
+**Trước / ngay sau `worker-start`:** bật auto-wake (Cursor pane không tự wake):
+
+```bash
+orca-coord-watch --run <runId> --terminal term_<coordinator> --workdir <project>
+```
+
+**Khi nhận `[ORCA auto-wake]` hoặc thấy report mới:**
+
+1. `orca-coord-drain --run <runId> --workdir <project>` (hoặc đọc inbox + `specs/agent-reports/` mới nhất).
+2. Tóm tắt cho user (không chờ user nhắc / paste ảnh).
+3. Chọn hướng đi tiếp / dispatch role kế (§15b, cổng SDD §6c) — không bỏ lửng.
+4. Cập nhật `specs/session-handoff.md`; `task-update --status completed|failed` khi đã settle.
