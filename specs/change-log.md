@@ -1,5 +1,26 @@
 # Change Log — agent dong
 
+## 2026-11-23 — Xóa `specs-extra` + `superpowers` docs
+
+- Xóa `resource/docs/specs-extra/` và `resource/docs/superpowers/` (không giữ design/archive phụ).
+- `resource/docs/` chỉ còn corpus YAML: `vms_yaml/`, `aioc_yaml/`.
+- Gỡ link/test phụ thuộc checklist/audit markdown đã xóa.
+
+## 2026-11-23 — `specs/` chỉ còn 4 file core SDD
+
+- Giữ trong `specs/`: `product-spec.md`, `implementation-plan.md`, `test-plan.md`, `change-log.md`.
+- Chuyển guide/design/archive/checklist → `resource/docs/specs-extra/` (kèm `archive/`).
+- Cập nhật link trong `product-spec`, `implementation-plan`, `README.md`, tests smoke/checklist.
+
+## 2026-11-23 — Gom artifact root vào `resource/`
+
+- Chuyển `data/`, `docs/` (superpowers), `eval/` → `resource/data/`, `resource/docs/superpowers/`, `resource/eval/`.
+- Chuyển `graph.png`, `graph_old.png`, `graph.mmd`, `graph_diagram.html`, `Ý tưởng Agent.docx`, `TAI_LIEU_TICH_HOP_CHATBOT_PHAN_QUYEN_VA_DB.md`, `Spec Driven Development Guide - Vietnamese.md` → `resource/`.
+- Feedback `DATA_DIR` = `resource/data/`; docker volume chỉ còn `./resource:/app/resource` (bỏ `./data`).
+- Eval: `PYTHONPATH=.:resource python resource/eval/run.py`; pytest `pythonpath = [".", "resource"]`.
+- Fix `aioc_docs_root()`: `parents[3]` → `parents[5]` (trước đó lệch thành `src/domain/resource/docs/aioc_yaml`).
+- Test: `pytest tests/test_feedback_api.py tests/test_product_api_gateway.py -k eval_run_help -q` (+ path asserts trong sql/deployment smoke).
+
 ## 2026-11-12 — `guardrails` → domain; `infra/db` → `infra/storage`
 
 - `src/guardrails` → `src/domain/guardrails` (import `src.domain.guardrails`).

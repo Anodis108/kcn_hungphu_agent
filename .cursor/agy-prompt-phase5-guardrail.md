@@ -10,7 +10,7 @@ Do NOT implement lines 97–102 or other phases.
 ## Problem
 
 - Injection/toxic: API trả `detail: "Câu hỏi bị từ chối: prompt_injection_detected"` — lộ mã máy, không thân thiện tiếng Việt.
-- Eval golden-30 (`eval/datasets/agent_stat/v2.yaml` cases 028–030) vẫn cần field `reason: prompt_injection_detected` (giữ mã trong JSON, không nhét vào detail user-facing).
+- Eval golden-30 (`resource/eval/datasets/agent_stat/v2.yaml` cases 028–030) vẫn cần field `reason: prompt_injection_detected` (giữ mã trong JSON, không nhét vào detail user-facing).
 - Out-of-scope: `OUT_OF_SCOPE_REPLY` đã tiếng Việt; cần đảm bảo `/api/chat`, `/api/agent/stream`, FE stream hiển thị rõ.
 - `test_api_agent_stream_prompt_injection_blocked` thiếu `session_id`/`user_id` — có thể test sai nguyên nhân 400.
 

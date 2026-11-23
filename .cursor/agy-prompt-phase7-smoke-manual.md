@@ -33,19 +33,12 @@ Cung cấp **checklist + script smoke** để operator chạy trên Docker stack
    - Timeout hợp lý mỗi stream (vd. 120s) — dùng `curl --max-time`.
    - Gửi `session_id`, `user_id` trong `/api/agent/stream` body.
 
-2. **`specs/smoke-manual-checklist.md`** — checklist UI (manual tay) bổ sung script:
-   - Sidebar: tạo/chuyển session, preview hiển thị.
-   - Chart bar/pie render trên UI (Chart.js canvas).
-   - Live graph hover JSON.
-   - Link tới `scripts/smoke-production.sh` cho phần API.
-
-3. **`tests/test_phase7_smoke_manual.py`** (offline pytest):
+2. **`tests/test_phase7_smoke_manual.py`** (offline pytest):
    - Script tồn tại, executable, chứa 7 case keywords/questions.
-   - Checklist md tồn tại, mention session/chart/fire/AIOC.
    - Mock TestClient: session create+list; TTL 2nd request mock cache SSE (pattern từ test_memory_ttl_cache).
    - Không cần live LLM/DB trong pytest.
 
-4. **Docs**:
+3. **Docs**:
    - Mark `[x]` line 123 in `specs/implementation-plan.md`.
    - Entry in `specs/change-log.md`.
    - Optional: 1 dòng link smoke script trong README (chỉ nếu đã có section eval/checklist — minimal).

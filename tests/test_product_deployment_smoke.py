@@ -157,7 +157,6 @@ client = TestClient(app)
 
 DONG_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = DONG_ROOT / "scripts"
-SPECS_DIR = DONG_ROOT / "specs"
 
 
 # ------------------------------------------------------------------------------
@@ -217,47 +216,7 @@ def test_smoke_production_script_structure_and_cases():
 
 
 # ------------------------------------------------------------------------------
-# Test 2: specs/smoke-manual-checklist.md contains required UI & API sections
-# ------------------------------------------------------------------------------
-def test_smoke_manual_checklist_markdown_content():
-    """specs/smoke-manual-checklist.md phải tài liệu hóa đầy đủ các hạng mục UI và link tới script."""
-    checklist_path = SPECS_DIR / "smoke-manual-checklist.md"
-    assert checklist_path.exists(), "specs/smoke-manual-checklist.md phải tồn tại"
-
-    content = checklist_path.read_text(encoding="utf-8")
-
-    # Link tới script smoke API
-    assert "scripts/smoke-production.sh" in content
-
-    # Sidebar & session management
-    assert "Sidebar" in content
-    assert "phiên mới" in content.lower() or "session" in content.lower()
-    assert "preview" in content.lower() or "lịch sử" in content.lower()
-
-    # Short-term memory
-    assert "Tên tôi là An." in content
-    assert "Tên tôi là gì?" in content
-
-    # TTL Cache
-    assert "TTL" in content or "cache" in content.lower()
-
-    # Charts (Chart.js canvas)
-    assert "Chart.js" in content
-    assert "cột" in content.lower() or "bar" in content.lower()
-    assert "tròn" in content.lower() or "pie" in content.lower()
-
-    # Domain specific queries
-    assert "cháy" in content.lower() or "khói" in content.lower()
-    assert "aioc" in content.lower()
-    assert "camera" in content.lower()
-
-    # Live Graph hover JSON
-    assert "Live Graph" in content or "live graph" in content.lower()
-    assert "hover" in content.lower() or "json" in content.lower()
-
-
-# ------------------------------------------------------------------------------
-# Test 3: Mock TestClient — Session API lifecycle (Create -> List -> Messages)
+# Test 2: Mock TestClient — Session API lifecycle (Create -> List -> Messages)
 # ------------------------------------------------------------------------------
 def test_mock_testclient_session_api_lifecycle():
     """Kiểm tra luồng API /api/sessions: Tạo session, list ≥1, messages API 200."""
@@ -495,7 +454,7 @@ def test_write_golden_30_markdown_format(tmp_path: Path):
 
 def test_eval_run_offline_execution(tmp_path: Path):
     """Kiểm tra eval run với flag offline chạy hoàn tất và ghi báo cáo."""
-    dataset_file = Path(__file__).resolve().parent.parent / "eval" / "datasets" / "agent_stat" / "v2.yaml"
+    dataset_file = Path(__file__).resolve().parent.parent / "resource" / "eval" / "datasets" / "agent_stat" / "v2.yaml"
     assert dataset_file.exists()
 
     out_file = tmp_path / "golden_offline.md"

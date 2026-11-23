@@ -11,14 +11,15 @@ venv/
 .pytest_cache/
 
 # Eval outputs (giữ thư mục bằng .gitkeep)
-eval/results/*
-!eval/results/.gitkeep
-!eval/results/golden-30.md
+resource/eval/results/*
+!resource/eval/results/.gitkeep
+!resource/eval/results/golden-30.md
 
 # Feedback attachments (+ legacy wrong path under src/)
-data/feedback/attachments/*
-!data/feedback/attachments/.gitkeep
+resource/data/feedback/attachments/*
+!resource/data/feedback/attachments/.gitkeep
 src/data/
+data/
 
 # Agent Postgres (bind mount under resource/db/agent)
 resource/db/agent/data/pgdata/

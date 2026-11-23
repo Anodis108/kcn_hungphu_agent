@@ -380,7 +380,7 @@ def run_agent_stream(
             yield {"node_id": "__answer__", "status": "error", "output": msg, "detail": {"status": "error"}}
 
 
-def save_graph_visualization(path: str = "graph.png", *, xray: bool = True) -> str:
+def save_graph_visualization(path: str = "resource/graph.png", *, xray: bool = True) -> str:
     """PNG qua mermaid; lỗi → ghi .mmd (như demo)."""
     g = _get_graph().get_graph(xray=xray)
     try:
@@ -396,4 +396,4 @@ def save_graph_visualization(path: str = "graph.png", *, xray: bool = True) -> s
 
 
 if __name__ == "__main__":
-    print(save_graph_visualization("graph.png"))
+    print(save_graph_visualization("resource/graph.png"))

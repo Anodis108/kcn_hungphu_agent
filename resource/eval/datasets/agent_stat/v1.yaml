@@ -1,4 +1,4 @@
-# eval/datasets/agent_stat/v1.yaml
+# resource/eval/datasets/agent_stat/v1.yaml
 #
 # Golden dataset cho agent_ATIN (chatbot thống kê xe ra/vào & xâm nhập khu
 # vực) — áp dụng "Bước 1: Xây Golden Set 30 Case" (LLM Evaluation Pipelines,

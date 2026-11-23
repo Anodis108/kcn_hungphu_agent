@@ -717,7 +717,11 @@ def test_frontend_api_routes_use_same_origin():
 def test_eval_run_help():
     import subprocess
     import sys
-    result = subprocess.run([sys.executable, "eval/run.py", "--help"], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "resource/eval/run.py", "--help"],
+        capture_output=True,
+        text=True,
+    )
     assert result.returncode == 0
     assert "--judge" in result.stdout
     assert "--offline" in result.stdout

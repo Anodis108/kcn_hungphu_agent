@@ -23,7 +23,7 @@
 
 ## 1.1 Observability — nested trace (v13)
 
-**Spec:** [nested-trace-v13-design.md](nested-trace-v13-design.md) · **AC:** `product-spec.md` AC-9.
+**AC:** `product-spec.md` AC-9.
 
 | ID | Kiểm thử | Kỳ vọng |
 |----|---------|---------|

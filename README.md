@@ -8,14 +8,12 @@ Trợ lý tiếng Việt thông minh cho hệ thống VMS KCN Hưng Phú: truy v
 
 | File | Nội dung |
 |------|----------|
-| [specs/README.md](specs/README.md) | Chỉ mục SDD |
-| [specs/sdd-guide-vi.md](specs/sdd-guide-vi.md) | Quy trình SDD + prompt Cursor |
-| [specs/superpowers-workflow-vi.md](specs/superpowers-workflow-vi.md) | Superpowers + Ponytail + SDD |
-| [src/README.md](src/README.md) | Cấu trúc mã nguồn (như `app/` llm-engineer-demo) |
 | [specs/product-spec.md](specs/product-spec.md) | Hợp đồng sản phẩm (Memory v9, graph agent) |
 | [specs/implementation-plan.md](specs/implementation-plan.md) | Task triển khai |
 | [specs/test-plan.md](specs/test-plan.md) | pytest + smoke |
 | [specs/change-log.md](specs/change-log.md) | Nhật ký thay đổi |
+| [resource/knowledge_handbook/Spec Driven Development Guide - Vietnamese.md](resource/knowledge_handbook/Spec%20Driven%20Development%20Guide%20-%20Vietnamese.md) | Guide SDD |
+| [src/README.md](src/README.md) | Cấu trúc mã nguồn |
 | [AGENTS.md](AGENTS.md) | Cursor + Antigravity |
 
 ---
@@ -126,7 +124,7 @@ cp .env.example .env
 | | `MODEL_NAME` | `qwen3-4b` | Tên mô hình chạy trên gateway |
 | | `OPENAI_API_KEYS` | `sk-...` | Danh sách API Key OpenAI nếu dùng cloud |
 | **IAM / RBAC (v18)** | `IAM_BASE_URL` | `http://192.168.1.250:21601` (prod) / `:18641` (staging) | Base IAM B2B (`GET /api/v1/auth/me`); FE gửi Bearer + `X-Organization-Id` |
-| | `IAM_REQUIRED` | `false` | `true` = bắt buộc Bearer; `false` = bypass BOARD (local/eval). Demo login: [specs/rbac-demo-howto.md](specs/rbac-demo-howto.md) |
+| | `IAM_REQUIRED` | `false` | `true` = bắt buộc Bearer; `false` = bypass BOARD (local/eval). Demo login: `IAM` demo (xem product-spec AC-12) |
 | | `IAM_TIMEOUT_S` | `5.0` | Timeout gọi IAM |
 | **Cổng mạng (Ports)** | `BACKEND_PORT` | `8000` | Cổng Backend API FastAPI |
 | | `FRONTEND_PORT` | `8080` (hoặc `3001`) | Cổng Web UI qua Nginx |

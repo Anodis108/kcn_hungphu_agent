@@ -7,7 +7,7 @@ Implement ONLY:
 
 ## Context
 
-- Golden-30 case 008 (`eval/datasets/agent_stat/v2.yaml`): `must_include: ["0"]` khi đếm đám đông không có sự kiện.
+- Golden-30 case 008 (`resource/eval/datasets/agent_stat/v2.yaml`): `must_include: ["0"]` khi đếm đám đông không có sự kiện.
 - `respond_node` đã có message có "0 lượt / 0 kết quả" khi `not rows`.
 - `EMPTY_TOOL_REPLY` trong guardrails **thiếu** số "0" — khi LLM bịa số trên tool rỗng, output guardrail mất "0".
 - `check_output(..., tool_empty=True)` giữ câu trả lời "trung thực" không có "0" — eval fail.

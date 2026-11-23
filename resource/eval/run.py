@@ -1,14 +1,14 @@
-"""eval/run.py — chạy golden dataset (eval/datasets/agent_stat/*.yaml) qua
+"""resource/eval/run.py — chạy golden dataset (resource/eval/datasets/agent_stat/*.yaml) qua
 ĐÚNG pipeline thật của src/main.py::ask() (guardrail_input → agent →
 guardrail_output — cần .env đầy đủ: DB + LLM key), kiểm các assertion khai
 báo trong từng case (must_include/must_include_tool/must_not_include/
 must_not_include_tool/must_include_columns_any), in tỷ lệ pass/fail theo
-slice.type, ghi eval/results/golden-30.md.
+slice.type, ghi resource/eval/results/golden-30.md.
 
 Dùng (LIVE — cần .env LLM 196 + DB read-only; không dùng PYTEST_CURRENT_TEST):
-    python eval/run.py                                   # dataset mặc định (v2)
-    python eval/run.py --judge                           # thêm cột judge 1-5 vào golden-30.md
-    python eval/run.py --dataset eval/datasets/agent_stat/v1.yaml
+    PYTHONPATH=.:resource python resource/eval/run.py
+    PYTHONPATH=.:resource python resource/eval/run.py --judge
+    PYTHONPATH=.:resource python resource/eval/run.py --dataset resource/eval/datasets/agent_stat/v1.yaml
 
 Assertion rule-based đủ cho pass/fail; `--judge` bật LLM chấm nhẹ 1-5 (tuỳ chọn).
 Chỉ dùng `--offline` khi mock nhanh (pytest/CI) — không phản ánh chất lượng product.
@@ -27,7 +27,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_EVAL_DIR = Path(__file__).resolve().parent
+_RESOURCE_DIR = _EVAL_DIR.parent
+_REPO_ROOT = _RESOURCE_DIR.parent
+sys.path.insert(0, str(_REPO_ROOT))
+sys.path.insert(0, str(_RESOURCE_DIR))
 
 import yaml
 
