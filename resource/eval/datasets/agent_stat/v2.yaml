@@ -1,4 +1,4 @@
-# eval/datasets/agent_stat/v2.yaml
+# resource/eval/datasets/agent_stat/v2.yaml
 #
 # Golden dataset cho agent dong — v2.4 (+ RBAC AC-12).
 # - Giữ 30 case v2.3 (lookup/comparison/out_of_scope/injection).

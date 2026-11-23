@@ -71,7 +71,6 @@ services:
     volumes:
       - ./src:/app/src
       - ./resource:/app/resource
-      - ./data:/app/data
     env_file:
       - path: .env
         required: false

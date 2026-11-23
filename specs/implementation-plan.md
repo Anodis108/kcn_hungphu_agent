@@ -3,11 +3,11 @@
 **Trạng thái v9 (Memory):** 100% hoàn thành — 7 Phase bên dưới.  
 **Trạng thái v10 (Cấu trúc `src/`):** Hoàn thành — API package + tách `graph.py` (facade ~90 dòng).  
 **Trạng thái v13 (Nested Langfuse):** Code + tests — xem § v13.  
-**Trạng thái v14 (ai_backend layout):** 14.1–14.4 done — [v14-ai-backend-layout-design.md](v14-ai-backend-layout-design.md); 14.5 optional.  
-**Trạng thái v15 (leaf agents + flat graph):** 15.1–15.5 done — [v15-leaf-agents-flat-graph-design.md](v15-leaf-agents-flat-graph-design.md).  
-**Trạng thái v16 (hierarchical teams):** 16.1–16.7 code (continuous) — [v16-hierarchical-agents-design.md](v16-hierarchical-agents-design.md) · [v16-hierarchical-agents-plan.md](v16-hierarchical-agents-plan.md).  
-**Trạng thái v18 (IAM RBAC):** đang triển khai — [v18-rbac-iam-design.md](v18-rbac-iam-design.md) · [v18-rbac-iam-plan.md](v18-rbac-iam-plan.md).  
-**Nguồn:** `specs/product-spec.md`, `specs/superpowers-workflow-vi.md`  
+**Trạng thái v14 (ai_backend layout):** 14.1–14.4 done — v14-ai-backend-layout-design.md; 14.5 optional.  
+**Trạng thái v15 (leaf agents + flat graph):** 15.1–15.5 done — v15-leaf-agents-flat-graph-design.md.  
+**Trạng thái v16 (hierarchical teams):** 16.1–16.7 code (continuous) — v16-hierarchical-agents-design.md · v16-hierarchical-agents-plan.md.  
+**Trạng thái v18 (IAM RBAC):** đang triển khai — v18-rbac-iam-design.md · v18-rbac-iam-plan.md.  
+**Nguồn:** `specs/product-spec.md`, `resource/knowledge_handbook/Spec Driven Development Guide - Vietnamese.md`  
 **Quy tắc:** Thực hiện tuần tự từng dòng `[ ]` một, kiểm tra kỹ lưỡng, sau đó đổi thành `[x]` và cập nhật `specs/change-log.md`. Không implement hàng loạt nhiều bước cùng lúc. **Task mới → thêm checklist ở đây trước khi code.**
 
 ---
@@ -15,7 +15,7 @@
 ## v18 — IAM RBAC + domain/geo + retrieval rename
 
 **Goal:** Bộ phận chỉ hỏi domain được phép; SQL geo/org; IAM `/auth/me`.  
-**Design:** [v18-rbac-iam-design.md](v18-rbac-iam-design.md) · **Plan:** [v18-rbac-iam-plan.md](v18-rbac-iam-plan.md) · **AC:** AC-12.
+**Design:** v18-rbac-iam-design.md · **Plan:** v18-rbac-iam-plan.md · **AC:** AC-12.
 
 - [x] 18.1 Spec + AC-12 + index
 - [x] 18.2 IAM gate + AccessContext
@@ -30,7 +30,7 @@
 ## v16 — Hierarchical `analytics_team` | `knowledge_team`
 
 **Goal:** Root graph + team subgraphs + `AgentTurnService` (SSE mới).  
-**Design:** [v16-hierarchical-agents-design.md](v16-hierarchical-agents-design.md) · **Plan:** [v16-hierarchical-agents-plan.md](v16-hierarchical-agents-plan.md).
+**Design:** v16-hierarchical-agents-design.md · **Plan:** v16-hierarchical-agents-plan.md.
 
 | Task | Mục tiêu |
 |:--:|-----------|
@@ -64,7 +64,7 @@
 ## v15 — Leaf `sql_agent` / `docs_agent` + flat `vms/graph.py`
 
 **Goal:** Package giống `ai_backend` leaf; wiring flat; không đổi hành vi.  
-**Design:** [v15-leaf-agents-flat-graph-design.md](v15-leaf-agents-flat-graph-design.md) · **Plan chi tiết:** [v15-leaf-agents-flat-graph-plan.md](v15-leaf-agents-flat-graph-plan.md) · **AC:** product-spec AC-11.
+**Design:** v15-leaf-agents-flat-graph-design.md · **Plan chi tiết:** v15-leaf-agents-flat-graph-plan.md · **AC:** product-spec AC-11.
 
 | Phase v15 | Mục tiêu |
 |:--:|-----------|
@@ -116,7 +116,7 @@
 ## v14 — Align layout với `vn-stock-swarm/src/ai_backend`
 
 **Goal:** `vms/` + `multi_agent/` + `application/` + `shared/settings/`; dọn specs core; không đổi hành vi.  
-**Design:** [v14-ai-backend-layout-design.md](v14-ai-backend-layout-design.md) · **AC:** product-spec AC-10.
+**Design:** v14-ai-backend-layout-design.md · **AC:** product-spec AC-10.
 
 | Phase v14 | Mục tiêu |
 |:--:|-----------|
@@ -232,7 +232,7 @@
 
 ## v13 — Nested Langfuse `trace_step` toàn graph
 
-**Goal:** Span con trong mọi node giống nhánh SQL — xem [archive/nested-trace-v13-design.md](archive/nested-trace-v13-design.md).  
+**Goal:** Span con trong mọi node giống nhánh SQL — xem archive/nested-trace-v13-design.md.  
 **AC:** `product-spec.md` AC-9; test AC-T1–T3 trong `test-plan.md`.
 
 | Phase v13 | Mục tiêu |

@@ -10,9 +10,9 @@ import sqlite3
 import threading
 from typing import Any
 logger = logging.getLogger(__name__)
-# dong/data (…/infra/storage/feedback → storage → infra → src → dong)
+# resource/data (…/infra/storage/feedback → storage → infra → src → repo root)
 _ROOT = Path(__file__).resolve().parents[4]
-DATA_DIR = _ROOT / "data"
+DATA_DIR = _ROOT / "resource" / "data"
 FEEDBACK_DB = DATA_DIR / 'feedback.db'
 FEEDBACK_FILE = DATA_DIR / 'feedback.json'
 ATTACHMENTS_DIR = DATA_DIR / 'feedback' / 'attachments'
@@ -135,7 +135,7 @@ def _sync_json_export(records: list[dict[str, Any]]) -> None:
         logger.warning('Không thể đồng bộ feedback.json: %s', exc)
 
 def save_attachment(feedback_id: str, image_base64: str, image_filename: str | None) -> str:
-    """Ghi ảnh base64 ra disk, trả về path tương đối `data/feedback/attachments/...`."""
+    """Ghi ảnh base64 ra disk, trả về path tương đối `resource/data/feedback/attachments/...`."""
     ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
     try:
         raw_b64 = image_base64.strip()
@@ -148,7 +148,7 @@ def save_attachment(feedback_id: str, image_base64: str, image_filename: str | N
         else:
             img_filename = f'{feedback_id}.png'
         (ATTACHMENTS_DIR / img_filename).write_bytes(img_bytes)
-        return f'data/feedback/attachments/{img_filename}'
+        return f'resource/data/feedback/attachments/{img_filename}'
     except Exception as exc:
         logger.warning('Không thể lưu ảnh đính kèm feedback: %s', exc)
         raise ValueError('Không thể lưu ảnh đính kèm. Vui lòng thử lại.') from exc

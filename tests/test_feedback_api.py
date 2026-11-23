@@ -1,9 +1,9 @@
 """Unit tests cho Human Feedback API & Streaming (dong v8 Phase 3).
 
 Kiểm tra:
-- AC-3: Gửi feedback Like (rating: positive) lưu vào data/feedback.json.
+- AC-3: Gửi feedback Like (rating: positive) lưu vào resource/data/feedback.json.
 - AC-4: Gửi feedback Dislike (rating: negative) kèm reason, image base64, agent_trace.
-- AC-5: File data/feedback.json hợp lệ, mã hóa UTF-8 tiếng Việt, an toàn ghi đè.
+- AC-5: File resource/data/feedback.json hợp lệ, mã hóa UTF-8 tiếng Việt, an toàn ghi đè.
 - AC-6: Stream chunks SSE qua POST /api/agent/stream với stream_tokens=True.
 - Validation: Chặn rating sai giá trị, question/answer rỗng.
 """
@@ -29,7 +29,7 @@ TINY_PNG_B64 = (
 
 
 def test_submit_positive_feedback_ac3(tmp_path, monkeypatch):
-    """AC-3: Đánh giá Like (rating: positive) được lưu đầy đủ vào data/feedback.json."""
+    """AC-3: Đánh giá Like (rating: positive) được lưu đầy đủ vào resource/data/feedback.json."""
     custom_fb_file = tmp_path / "feedback.json"
     custom_attach_dir = tmp_path / "attachments"
     monkeypatch.setattr("src.infra.storage.feedback.local.FEEDBACK_FILE", custom_fb_file)
@@ -92,7 +92,7 @@ def test_submit_negative_feedback_with_image_ac4(tmp_path, monkeypatch):
     rec = records[0]
     assert rec["rating"] == "negative"
     assert "thiếu 4 camera" in rec["feedback_reason"]
-    assert rec["attachment_path"] == f"data/feedback/attachments/{fb_id}.png"
+    assert rec["attachment_path"] == f"resource/data/feedback/attachments/{fb_id}.png"
 
     # Xác nhận file ảnh thực tế đã được lưu trên đĩa
     saved_img = custom_attach_dir / f"{fb_id}.png"
@@ -272,7 +272,7 @@ def test_submit_negative_feedback_with_custom_image_filename(tmp_path, monkeypat
     saved_img = custom_attach_dir / f"{fb_id}_screenshot_dashboard.png"
     assert saved_img.exists()
     records = get_all_feedback()
-    assert records[0]["attachment_path"] == f"data/feedback/attachments/{fb_id}_screenshot_dashboard.png"
+    assert records[0]["attachment_path"] == f"resource/data/feedback/attachments/{fb_id}_screenshot_dashboard.png"
 
 
 def test_feedback_sqlite_direct_query(tmp_path, monkeypatch):

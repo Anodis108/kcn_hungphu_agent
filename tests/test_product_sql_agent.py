@@ -895,7 +895,7 @@ def test_v2_yaml_structure():
     """Kiểm tra dataset v2.yaml có đủ 30 cases và phân bổ đúng 18/6/3/3."""
     import yaml
 
-    yaml_path = Path(__file__).resolve().parent.parent / "eval/datasets/agent_stat/v2.yaml"
+    yaml_path = Path(__file__).resolve().parent.parent / "resource/eval/datasets/agent_stat/v2.yaml"
     assert yaml_path.exists(), "Không tìm thấy v2.yaml"
     
     with open(yaml_path, encoding="utf-8") as f:

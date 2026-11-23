@@ -7,8 +7,8 @@ __pycache__
 .git
 .gitignore
 specs/
-eval/results/*
-!eval/results/.gitkeep
+resource/eval/results/*
+!resource/eval/results/.gitkeep
 tests/
 *.md
 !resource/**

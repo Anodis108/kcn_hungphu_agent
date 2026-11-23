@@ -12,7 +12,8 @@ def docs_root() -> Path:
 
 def aioc_docs_root() -> Path:
     """Đường dẫn thư mục docs YAML AIOC."""
-    project_root = Path(__file__).resolve().parents[3]
+    # …/retrieval/loader.py → parents[5] = repo root
+    project_root = Path(__file__).resolve().parents[5]
     return (project_root / 'resource' / 'docs' / 'aioc_yaml').resolve()
 
 @lru_cache
