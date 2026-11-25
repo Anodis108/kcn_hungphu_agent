@@ -144,6 +144,7 @@ def fresh_invoke_state(question: str, inp: Agent_Input, uid: str, session_id: st
         "orchestrator_batch_end_index": 0,
         "orchestrator_step_results": [],
         "orchestrator_multi_active": False,
+        "iteration_count": 0,
         "sql_batch": [],
         "sql_batch_results": [],
         "multi_hop_ready": False,
@@ -169,7 +170,10 @@ def _prepare_turn(
 ) -> tuple[str, str, dict, dict, str]:
     question = (inp.question or "").strip()
     uid = user_id or getattr(inp, "user_id", "default") or "default"
-    config = {"configurable": {"thread_id": session_id}}
+    config = {
+        "configurable": {"thread_id": session_id},
+        "recursion_limit": int(settings.graph_recursion_limit or 25),
+    }
     meta = dict(trace_metadata or {})
     prompt_version = resolve_prompt_version(uid)
     meta.setdefault("prompt_version", prompt_version)
@@ -321,6 +325,10 @@ def run_agent(
             config=config,
             context=_runtime_context(inp, uid, trace_span=span, prompt_version=prompt_version),
         )
+        if isinstance(state, dict):
+            hops = state.get("iteration_count")
+            if hops is not None and isinstance(trace, dict):
+                trace.setdefault("metadata", {})["supervisor_hops"] = int(hops)
         result = _require_result(state)
         if own_root and isinstance(trace, dict):
             trace["output"] = _trace_output_from_result(result)
@@ -362,6 +370,10 @@ def run_agent_stream(
                 config,
                 _runtime_context(inp, uid, trace_span=span, prompt_version=prompt_version),
             ):
+                if isinstance(ev, dict) and "meta" in ev and isinstance(ev["meta"], dict):
+                    hops = ev["meta"].get("supervisor_hops") or ev["meta"].get("iteration_count")
+                    if hops is not None and isinstance(trace, dict):
+                        trace.setdefault("metadata", {})["supervisor_hops"] = int(hops)
                 if "__final_result__" in ev:
                     final = ev["__final_result__"]
                     if isinstance(trace, dict):
@@ -371,9 +383,9 @@ def run_agent_stream(
                 yield from run_store_extract(uid, session_id, question, final, span)
         except Exception as e:
             logger.exception("run_agent_stream failed: %s", e)
-            from src.main import _format_error_message
+            from src.api.helpers.errors import format_error_message
 
-            msg = _format_error_message(e)
+            msg = format_error_message(e)
             if isinstance(trace, dict):
                 trace["output"] = {"status": "error", "error": msg, "answer": msg}
             yield {"node_id": "error", "status": "done", "output": msg}

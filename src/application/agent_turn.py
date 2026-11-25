@@ -14,12 +14,12 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from src.api.helpers.cache_helpers import is_identity_query
+from src.api.helpers.cache_helpers import is_identity_query, lookup_ttl_cache
 from src.api.helpers.errors import format_error_message
 from src.api.helpers.session_helpers import build_agent_trace, persist_session_turn
 from src.api.helpers.sse_helpers import build_chart_sse_event, sanitize_sse_event
 from src.api.models.schemas import ChatRequest
-from src.infra.memory.ttl_cache import make_cache_key
+from src.infra.memory.ttl_cache import make_cache_key, set_ttl_cached
 from src.shared.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -58,12 +58,16 @@ def _agent_detail(out: Any) -> str:
 def _detail_from_out(out: Any) -> dict[str, Any]:
     """Map Agent_Output / TurnOutput → detail dict cho API + cache."""
     query = getattr(out, "query", None)
-    return {
+    d: dict[str, Any] = {
         "tool": getattr(query, "tool", "") if query else "",
         "columns": list(getattr(query, "columns", []) or []) if query else [],
         "row_count": int(getattr(query, "row_count", 0) or 0) if query else 0,
         "agent_detail": _agent_detail(out),
     }
+    ui_nav = getattr(out, "ui_navigate", None)
+    if ui_nav:
+        d["ui_navigate"] = ui_nav
+    return d
 
 
 def build_cache_data_from_output(out: Any) -> dict[str, Any]:
@@ -96,13 +100,12 @@ def store_turn_cache(
 ) -> None:
     if skip or is_identity_query(question) or is_identity_query(cache_q):
         return
-    import src.main as main_mod
 
     ttl = settings.memory_ttl_seconds
     try:
-        main_mod.set_ttl_cached(make_cache_key(question, route=route), cache_data, ttl=ttl)
+        set_ttl_cached(make_cache_key(question, route=route), cache_data, ttl=ttl)
         if cache_q and cache_q != question:
-            main_mod.set_ttl_cached(make_cache_key(cache_q, route=route), cache_data, ttl=ttl)
+            set_ttl_cached(make_cache_key(cache_q, route=route), cache_data, ttl=ttl)
     except Exception as exc:
         logger.warning("Failed to store TTL cache: %s", exc)
 
@@ -143,30 +146,48 @@ class AgentTurnService:
         """JSON một lần: chạy graph → TurnOutput."""
         import src.main as main_mod
         from src.domain.agents.graph import Agent_Input
+        from src.api.helpers.errors import format_error_message
 
         # Bước 1: gọi graph
-        out = main_mod.run_agent(
-            Agent_Input(
-                question=inp.question,
-                rewritten=inp.rewritten,
+        try:
+            out = main_mod.run_agent(
+                Agent_Input(
+                    question=inp.question,
+                    rewritten=inp.rewritten,
+                    user_id=inp.user_id,
+                    stream_tokens=inp.stream_tokens,
+                    access_context=inp.access_context,
+                ),
+                session_id=inp.session_id,
                 user_id=inp.user_id,
-                stream_tokens=inp.stream_tokens,
-                access_context=inp.access_context,
-            ),
-            session_id=inp.session_id,
-            user_id=inp.user_id,
-            **run_kwargs,
-        )
-        # Bước 2: map sang DTO
-        return TurnOutput(
-            question=out.question,
-            answer=out.answer,
-            detail=_detail_from_out(out),
-            query=getattr(out, "query", None),
-        )
+                **run_kwargs,
+            )
+            # Bước 2: map sang DTO
+            return TurnOutput(
+                question=out.question,
+                answer=out.answer,
+                detail=_detail_from_out(out),
+                query=getattr(out, "query", None),
+            )
+        except Exception as exc:
+            msg = format_error_message(exc)
+            return TurnOutput(
+                question=inp.question,
+                answer=msg,
+                detail={"status": "error", "error": msg},
+                query=None,
+            )
 
-    def stream_sse_frames(self, req: ChatRequest, *, access: Any, user_id: str) -> Iterator[str]:
+    def stream_sse_frames(
+        self,
+        req: ChatRequest,
+        *,
+        access: Any,
+        user_id: str,
+        disconnect_check: Any | None = None,
+    ) -> Iterator[str]:
         """POST /api/agent/stream — yield dòng SSE (cache / graph / chart / complete)."""
+        import inspect
         import src.main as main_mod
         from src.domain.agents.graph import Agent_Input
         from src.domain.guardrails import redact_pii
@@ -182,7 +203,7 @@ class AgentTurnService:
 
         try:
             # Bước 2: cache hit → SSE cache + complete
-            cached = main_mod._lookup_ttl_cache(raw_question)
+            cached = lookup_ttl_cache(raw_question)
             if cached:
                 detail = detail_payload_from_cache(cached)
                 ans = cached.get("answer") or ""
@@ -232,11 +253,37 @@ class AgentTurnService:
                 ),
                 **stream_kwargs,
             ):
+                if disconnect_check is not None:
+                    try:
+                        res = disconnect_check()
+                        if inspect.isawaitable(res):
+                            # In sync generator, caller usually checks before or wraps
+                            pass
+                        elif res:
+                            logger.info("sse_client_disconnected: session_id=%s user_id=%s", session_id, user_id)
+                            break
+                    except Exception as disc_err:
+                        logger.debug("disconnect_check error: %s", disc_err)
+
                 # Bước 4a: kết quả cuối → persist + cache + complete
                 if "__final_result__" in event:
                     got_final = True
                     out = event["__final_result__"]
                     detail = _detail_from_out(out)
+                    nav_data = getattr(out, "ui_navigate", None) or detail.get("ui_navigate")
+                    if not nav_data:
+                        try:
+                            from src.domain.agents.ui_navigate import resolve_ui_navigate
+                            nav_data = resolve_ui_navigate(out.question or question)
+                        except Exception:
+                            nav_data = None
+                    if nav_data:
+                        detail["ui_navigate"] = nav_data
+                        yield _sse({
+                            "node_id": "ui_navigate",
+                            "status": "done",
+                            "ui_navigate": nav_data,
+                        })
                     if chart.get("png") or chart.get("url"):
                         detail["chart_type"] = chart.get("type") or "bar"
                         detail["chart_spec"] = chart.get("spec") or {}
@@ -270,17 +317,18 @@ class AgentTurnService:
                         out.detail or "query_data",
                         build_cache_data_from_output(out),
                     )
-                    yield _sse(
-                        {
-                            "complete": True,
-                            "question": out.question or question,
-                            "answer": out.answer,
-                            "detail": detail,
-                            "node_id": "__answer__",
-                            "status": "done",
-                            "output": out.answer,
-                        }
-                    )
+                    final_payload = {
+                        "complete": True,
+                        "question": out.question or question,
+                        "answer": out.answer,
+                        "detail": detail,
+                        "node_id": "__answer__",
+                        "status": "done",
+                        "output": out.answer,
+                    }
+                    if nav_data:
+                        final_payload["ui_navigate"] = nav_data
+                    yield _sse(final_payload)
                     continue
 
                 node_id = event.get("node_id") or ""
@@ -373,15 +421,33 @@ class AgentTurnService:
                 continue
             if "__final_result__" in event:
                 out = event["__final_result__"]
-                yield {
+                out_detail = _detail_from_out(out)
+                nav_data = getattr(out, "ui_navigate", None) or out_detail.get("ui_navigate")
+                if not nav_data:
+                    try:
+                        from src.domain.agents.ui_navigate import resolve_ui_navigate
+                        nav_data = resolve_ui_navigate(getattr(out, "question", inp.question))
+                    except Exception:
+                        nav_data = None
+                if nav_data:
+                    out_detail["ui_navigate"] = nav_data
+                    yield {
+                        "node_id": "ui_navigate",
+                        "status": "done",
+                        "ui_navigate": nav_data,
+                    }
+                final_item: dict[str, Any] = {
                     "complete": True,
                     "question": getattr(out, "question", inp.question),
                     "answer": getattr(out, "answer", ""),
-                    "detail": _detail_from_out(out),
+                    "detail": out_detail,
                     "node_id": "__answer__",
                     "status": "done",
                     "output": getattr(out, "answer", ""),
                 }
+                if nav_data:
+                    final_item["ui_navigate"] = nav_data
+                yield final_item
                 continue
             node_id = event.get("node_id")
             if node_id == "__answer__" and event.get("status") == "chunk":

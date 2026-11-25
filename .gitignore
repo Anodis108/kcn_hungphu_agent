@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.pyo
 .env
 langfuse/.env
 .venv/
@@ -9,11 +10,21 @@ venv/
 *.db-wal
 *.db-shm
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+.DS_Store
+.idea/
+.vscode/
 
 # Eval outputs (giữ thư mục bằng .gitkeep)
 resource/eval/results/*
 !resource/eval/results/.gitkeep
 !resource/eval/results/golden-30.md
+!resource/eval/results/baseline.json
+!resource/eval/results/baseline-offline.json
 
 # Feedback attachments (+ legacy wrong path under src/)
 resource/data/feedback/attachments/*
@@ -24,3 +35,17 @@ data/
 # Agent Postgres (bind mount under resource/db/agent)
 resource/db/agent/data/pgdata/
 resource/db/agent/data/qdrant/
+*.zip
+
+# Local deploy state (Phase 21.3 — .current / .lkg)
+deploy/.state/
+
+# Orca / coordinator local runtime
+.orca-playbook-installed
+orca_setup/logs/
+
+# Ephemeral Coord briefs (giữ report *.md)
+specs/agent-reports/_briefs/
+
+# Nested handbook demo (~200MB) — không thuộc product tree
+resource/knowledge_handbook/llm-engineer-demo/

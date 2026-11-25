@@ -11,7 +11,7 @@ from typing import Any
 
 from src.shared.settings import settings
 from src.infra.storage.sql.catalog import get_database_for_sql
-from src.infra.storage.sql.connection import get_connection
+from src.infra.storage.sql.connection import enforce_sql_limit, get_connection
 from src.infra.storage.sql.validator import validate_sql
 
 _TABLE_REF = re.compile(
@@ -36,6 +36,9 @@ def execute_sql(
     val = validate_sql(sql)
     if not val.ok:
         raise ValueError(f"SQL không hợp lệ: {val.reason}")
+
+    # Áp dụng soft sandbox limit mặc định nếu thiếu
+    sql = enforce_sql_limit(sql)
 
     # 2. Kiểm tra cấu hình kết nối DB
     if not settings.db_configured:

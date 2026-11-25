@@ -10,7 +10,6 @@
   const state = {
     isGenerating: false,
     messages: [],
-    graphNodes: {},
     streamAbortController: null,
     streamEventsCount: 0,
     userId: null,
@@ -28,6 +27,7 @@
     attachedImageBase64: null,
     attachedImageFilename: null,
     memoryFactsCount: 0,
+    lastUiNavigate: null,
     authUser: null,
     iamRequired: false,
   };
@@ -52,11 +52,6 @@
     messagesList: document.getElementById('messages-list'),
     questionInput: document.getElementById('question-input'),
     btnSend: document.getElementById('btn-send'),
-    graphPlaceholder: document.getElementById('graph-placeholder'),
-    graphNodes: document.getElementById('graph-nodes'),
-    graphIoEmpty: document.getElementById('graph-io-empty'),
-    graphIoBody: document.getElementById('graph-io-body'),
-    graphPanelHint: document.getElementById('graph-panel-hint'),
     feedbackModal: document.getElementById('feedback-modal'),
     btnCloseFeedback: document.getElementById('btn-close-feedback'),
     btnCancelFeedback: document.getElementById('btn-cancel-feedback'),
@@ -244,7 +239,7 @@
 
   async function loadCurrentSessionMessages() {
     el.messagesList.innerHTML = '';
-    resetGraph();
+    resetStreamState();
 
     if (!state.activeSessionId) {
       el.welcomeScreen.style.display = 'block';
@@ -281,7 +276,7 @@
     el.welcomeScreen.style.display = 'none';
     state.messages = messages;
     messages.forEach(msg => {
-      appendMessage(msg.role, msg.content, msg.detail, msg.chart, msg.agent_trace);
+      appendMessage(msg.role, msg.content, msg.detail, msg.chart, msg.agent_trace, msg.ui_navigate);
     });
     scrollToBottom();
   }
@@ -782,48 +777,18 @@
   }
 
   // ==========================================================================
-  // Graph Logic (Phase 5+)
+  // Stream run control (no live graph panel — traces via Langfuse)
   // ==========================================================================
-  const IO_MAX_CHARS = 80000;
-  let graphRunId = 0;
-  let hoveredGraphNodeId = null;
-  let pinnedGraphNodeId = null;
+  let streamRunId = 0;
 
-  function formatIoValue(val) {
-    if (val === null || val === undefined) return '(empty)';
-    if (typeof val === 'string') {
-      const trimmed = val.trim();
-      if (
-        (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
-        (trimmed.startsWith('[') && trimmed.endsWith(']'))
-      ) {
-        try {
-          return JSON.stringify(JSON.parse(trimmed), null, 2);
-        } catch (e) {
-          return val;
-        }
-      }
-      return val;
-    }
-    if (typeof val === 'object') {
-      try {
-        return JSON.stringify(val, null, 2);
-      } catch (e) {
-        return String(val);
-      }
-    }
-    return String(val);
+  function formatDurationMs(ms) {
+    if (ms === undefined || ms === null || isNaN(ms)) return '';
+    const n = Number(ms);
+    return (n >= 100 ? Math.round(n) : n.toFixed(1)) + ' ms';
   }
 
-  function truncateIoText(text) {
-    if (text.length <= IO_MAX_CHARS) return text;
-    return text.slice(0, IO_MAX_CHARS) + '\n… (đã cắt — xem Langfuse để full)';
-  }
-
-  function resetGraph() {
-    graphRunId += 1;
-    pinnedGraphNodeId = null;
-    hoveredGraphNodeId = null;
+  function resetStreamState() {
+    streamRunId += 1;
     if (state.streamAbortController) {
       state.streamAbortController.abort();
     }
@@ -838,190 +803,7 @@
     state.lastChartType = null;
     state.lastChartRows = null;
     state.lastStreamError = null;
-    state.graphNodes = {};
-    if (el.graphNodes) el.graphNodes.innerHTML = '';
-    if (el.graphPanelHint) {
-      el.graphPanelHint.innerHTML = '<span class="graph-panel-total">⏱️ Đang chạy…</span>';
-    }
-    if (el.graphPlaceholder) {
-      el.graphPlaceholder.classList.remove('hidden');
-      el.graphPlaceholder.textContent = 'Chờ sự kiện node...';
-    }
-    if (el.graphIoEmpty) el.graphIoEmpty.hidden = false;
-    if (el.graphIoBody) {
-      el.graphIoBody.hidden = true;
-      el.graphIoBody.textContent = '';
-    }
   }
-
-  function formatDurationMs(ms) {
-    if (ms === undefined || ms === null || isNaN(ms)) return '';
-    const n = Number(ms);
-    return (n >= 100 ? Math.round(n) : n.toFixed(1)) + ' ms';
-  }
-
-  function showNodeIo(nodeId) {
-    const activeNodeId = pinnedGraphNodeId || nodeId;
-    const n = state.graphNodes[activeNodeId];
-    if (!n) return;
-
-    document.querySelectorAll('.graph-node').forEach(node => {
-      const isTarget = node.dataset.nodeId === activeNodeId;
-      node.classList.toggle('selected', isTarget);
-      node.classList.toggle('pinned', Boolean(pinnedGraphNodeId && node.dataset.nodeId === pinnedGraphNodeId));
-    });
-    el.graphIoEmpty.hidden = true;
-    el.graphIoBody.hidden = false;
-
-    const isRunning = n.status === 'running';
-    let raw =
-      'node: ' + activeNodeId + (n.status ? ` [${n.status}]` : '') +
-      (pinnedGraphNodeId === activeNodeId ? ' 📌 (đã ghim — click lại để bỏ ghim)' : '') +
-      '\n\ninput:\n' + formatIoValue(n.input) +
-      '\n\noutput:\n' + (isRunning && (n.output === undefined || n.output === null) ? '(đang chạy…)' : formatIoValue(n.output));
-    if (n.durationMs !== undefined && n.durationMs !== null) {
-      raw += `\n\nthời gian thực thi (latency): ${formatDurationMs(n.durationMs)}`;
-    }
-    if (n.meta && typeof n.meta === 'object' && Object.keys(n.meta).length > 0) {
-      raw += '\n\nmeta:\n' + formatIoValue(n.meta);
-    }
-    el.graphIoBody.textContent = truncateIoText(raw);
-  }
-
-  function upsertGraphNode(nodeId, status, input, output, meta, durationMs) {
-    if (el.graphPlaceholder) el.graphPlaceholder.classList.add('hidden');
-    const prev = state.graphNodes[nodeId] || {};
-    
-    let dur = durationMs !== undefined && durationMs !== null ? durationMs : (meta && meta.duration_ms);
-    if (!state.nodeStartTimes) state.nodeStartTimes = {};
-    if (!state.nodeDurations) state.nodeDurations = {};
-
-    if (status === 'running') {
-      state.nodeStartTimes[nodeId] = performance.now();
-    } else if (status === 'done') {
-      if ((dur === undefined || dur === null) && state.nodeStartTimes[nodeId]) {
-        dur = Math.round(performance.now() - state.nodeStartTimes[nodeId]);
-      }
-      if (dur !== undefined && dur !== null) {
-        state.nodeDurations[nodeId] = dur;
-      }
-    }
-
-    const next = {
-      status,
-      durationMs: dur !== undefined && dur !== null ? dur : prev.durationMs,
-      input: status === 'done'
-        ? input
-        : (input !== undefined && input !== null ? input : prev.input),
-      output: status === 'done'
-        ? output
-        : (output !== undefined && output !== null ? output : prev.output),
-      meta: status === 'done'
-        ? (meta !== undefined ? meta : prev.meta)
-        : (meta !== undefined && meta !== null ? meta : prev.meta),
-    };
-    state.graphNodes[nodeId] = next;
-    let card = el.graphNodes.querySelector(`[data-node-id="${nodeId}"]`);
-    if (!card) {
-      card = document.createElement('button');
-      card.type = 'button';
-      card.className = 'graph-node';
-      card.dataset.nodeId = nodeId;
-      card.innerHTML =
-        '<div class="graph-node-header"><span class="graph-node-id"></span><span class="graph-node-time"></span></div><div class="graph-node-status"></div>';
-      card.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (pinnedGraphNodeId === nodeId) {
-          pinnedGraphNodeId = null;
-          showNodeIo(nodeId);
-        } else {
-          pinnedGraphNodeId = nodeId;
-          showNodeIo(nodeId);
-        }
-      });
-      card.addEventListener('mouseenter', () => {
-        hoveredGraphNodeId = nodeId;
-        if (!pinnedGraphNodeId) {
-          showNodeIo(nodeId);
-        }
-      });
-      card.addEventListener('mouseleave', () => {
-        if (hoveredGraphNodeId === nodeId) hoveredGraphNodeId = null;
-      });
-      el.graphNodes.appendChild(card);
-    }
-    let headerEl = card.querySelector('.graph-node-header');
-    let idEl = card.querySelector('.graph-node-id');
-    let timeEl = card.querySelector('.graph-node-time');
-    let statusEl = card.querySelector('.graph-node-status');
-
-    if (!headerEl) {
-      headerEl = document.createElement('div');
-      headerEl.className = 'graph-node-header';
-      idEl = document.createElement('span');
-      idEl.className = 'graph-node-id';
-      timeEl = document.createElement('span');
-      timeEl.className = 'graph-node-time';
-      headerEl.appendChild(idEl);
-      headerEl.appendChild(timeEl);
-      card.insertBefore(headerEl, card.firstChild);
-    } else {
-      if (!idEl) {
-        idEl = document.createElement('span');
-        idEl.className = 'graph-node-id';
-        headerEl.insertBefore(idEl, headerEl.firstChild);
-      }
-      if (!timeEl) {
-        timeEl = document.createElement('span');
-        timeEl.className = 'graph-node-time';
-        headerEl.appendChild(timeEl);
-      }
-    }
-    if (!statusEl) {
-      statusEl = document.createElement('div');
-      statusEl.className = 'graph-node-status';
-      card.appendChild(statusEl);
-    }
-
-    idEl.textContent = nodeId;
-
-    const curDur = next.durationMs;
-    let durLabel = '';
-    if (typeof curDur === 'number' && !isNaN(curDur)) {
-      durLabel = formatDurationMs(curDur);
-    }
-
-    if (timeEl) {
-      if (status === 'running') {
-        timeEl.className = 'graph-node-time running';
-        timeEl.textContent = '…';
-        timeEl.style.display = 'inline-block';
-      } else if (durLabel) {
-        timeEl.className = 'graph-node-time';
-        timeEl.textContent = durLabel;
-        timeEl.style.display = 'inline-block';
-      } else {
-        timeEl.textContent = '';
-        timeEl.style.display = 'none';
-      }
-    }
-
-    statusEl.textContent =
-      status === 'running'
-        ? 'đang chạy…'
-        : (durLabel ? `xong (${durLabel}) — trỏ hoặc bấm để xem I/O` : 'xong — trỏ hoặc bấm để xem I/O');
-
-    if (status === 'done') {
-      if (pinnedGraphNodeId) {
-        if (nodeId === pinnedGraphNodeId) {
-          showNodeIo(nodeId);
-        }
-      } else if (hoveredGraphNodeId === nodeId) {
-        showNodeIo(nodeId);
-      }
-    }
-  }
-
 
   // ==========================================================================
   // Markdown & Message Rendering
@@ -1554,7 +1336,63 @@
     contentDiv.appendChild(retryContainer);
   }
 
-  function appendMessage(role, content, detail, chartPayload, agentTrace) {
+  // ==========================================================================
+  // UI Navigation Deep-link Helpers (Phase 19.8)
+  // ==========================================================================
+  const UI_NAVIGATE_WHITELIST = [
+    "/dashboard",
+    "/dashboard/traffic",
+    "/devices",
+    "/monitoring",
+    "/playback",
+    "/map",
+    "/events",
+    "/security/alerts",
+    "/security/intrusion",
+    "/zones",
+    "/reports",
+  ];
+
+  function isWhitelistedNavPath(path) {
+    if (!path || typeof path !== 'string') return false;
+    let clean = path.trim();
+    if (!clean.startsWith('/')) clean = '/' + clean;
+    clean = clean.replace(/\/+$/, '') || '/';
+    return UI_NAVIGATE_WHITELIST.some(w => {
+      let normW = w.trim();
+      if (!normW.startsWith('/')) normW = '/' + normW;
+      normW = normW.replace(/\/+$/, '') || '/';
+      return clean.toLowerCase() === normW.toLowerCase();
+    });
+  }
+
+  function appendUiNavigateButton(contentDiv, nav) {
+    if (!nav || !nav.path || !isWhitelistedNavPath(nav.path)) {
+      return; // Path ngoài whitelist -> bỏ
+    }
+    const navContainer = document.createElement('div');
+    navContainer.className = 'ui-navigate-container';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-ui-navigate';
+    const targetUrl = nav.path + (nav.query ? ('?' + nav.query) : '');
+    btn.title = `Mở trang: ${targetUrl}`;
+    btn.innerHTML = `
+      <span class="btn-ui-navigate-icon">🔗</span>
+      <span class="btn-ui-navigate-label">Mở trang</span>
+      <span class="btn-ui-navigate-path">${escapeHtml(nav.path)}</span>
+      <span class="btn-ui-navigate-arrow">↗</span>
+    `;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      window.open(targetUrl, '_blank');
+    });
+    navContainer.appendChild(btn);
+    contentDiv.appendChild(navContainer);
+  }
+
+  function appendMessage(role, content, detail, chartPayload, agentTrace, uiNavigate) {
     el.welcomeScreen.style.display = 'none';
 
     const item = document.createElement('div');
@@ -1595,6 +1433,14 @@
     bubbleText.innerHTML = parseMarkdown(content);
     bubble.appendChild(bubbleText);
     contentDiv.appendChild(bubble);
+
+    // Deep-link UI Navigate button (Phase 19.8)
+    if (role === 'assistant') {
+      const nav = uiNavigate || (detail && detail.ui_navigate);
+      if (nav) {
+        appendUiNavigateButton(contentDiv, nav);
+      }
+    }
 
     // Chart rendering in assistant messages: only render when chartPayload is present
     if (role === 'assistant' && chartPayload) {
@@ -1741,8 +1587,8 @@
     showThinkingIndicator();
     
     // Subscribe to SSE
-    resetGraph();
-    const currentRunId = graphRunId;
+    resetStreamState();
+    const currentRunId = streamRunId;
     const currentSessionId = sess.id;
 
     apiFetch('/api/agent/stream', {
@@ -1756,7 +1602,7 @@
       }),
       signal: state.streamAbortController.signal
     }).then(async (res) => {
-      if (currentRunId !== graphRunId) return;
+      if (currentRunId !== streamRunId) return;
 
       if (!res.ok) {
         let errText = '⚠️ **Lỗi kết nối**: Không thể kết nối tới backend/API. Vui lòng kiểm tra lại hệ thống.';
@@ -1852,7 +1698,7 @@
 
               // Live Chunk Streaming Event
               if (event.node_id === '__answer__' && event.status === 'chunk') {
-                if (currentRunId !== graphRunId) return;
+                if (currentRunId !== streamRunId) return;
                 hasAnswer = true;
                 removeThinkingIndicator();
 
@@ -1886,9 +1732,17 @@
                 continue;
               }
 
+              // Deep-link UI Navigate SSE event (Phase 19.8)
+              if (event.node_id === 'ui_navigate' || event.ui_navigate) {
+                const nav = event.ui_navigate || (event.path ? { path: event.path, query: event.query } : null);
+                if (nav && isWhitelistedNavPath(nav.path)) {
+                  state.lastUiNavigate = nav;
+                }
+              }
+
               // Stream Completion Event
               if (event.node_id === '__answer__') {
-                if (currentRunId !== graphRunId) return;
+                if (currentRunId !== streamRunId) return;
                 hasAnswer = true;
                 removeThinkingIndicator();
 
@@ -1916,6 +1770,16 @@
                 state.lastChartType = null;
                 state.lastChartRows = null;
 
+                // Resolve UI Navigate payload (Phase 19.8)
+                const navPayload = (event.ui_navigate && isWhitelistedNavPath(event.ui_navigate.path))
+                  ? event.ui_navigate
+                  : (event.detail && event.detail.ui_navigate && isWhitelistedNavPath(event.detail.ui_navigate.path))
+                  ? event.detail.ui_navigate
+                  : (state.lastUiNavigate && isWhitelistedNavPath(state.lastUiNavigate.path))
+                  ? state.lastUiNavigate
+                  : null;
+                state.lastUiNavigate = null;
+
                 const agentTrace = (event.detail && event.detail.agent_trace)
                   || buildAgentTrace(state.lastAgentTrace || [], event.detail);
 
@@ -1928,6 +1792,7 @@
                     detail: event.detail,
                     chart: chartPayload,
                     agent_trace: agentTrace,
+                    ui_navigate: navPayload,
                     timestamp: new Date().toISOString()
                   });
                   const now = new Date().toISOString();
@@ -1938,11 +1803,6 @@
                   renderSessionList();
                 }
                 
-                if (state.streamStartTime && el.graphPanelHint) {
-                  const totalMs = Math.round(performance.now() - state.streamStartTime);
-                  el.graphPanelHint.innerHTML = '<span class="graph-panel-total">⏱️ Tổng: ' + formatDurationMs(totalMs) + '</span>';
-                }
-
                 // Mở khóa UI ngay lập tức khi câu trả lời hoàn tất, không bắt người dùng phải đợi store_extract
                 state.isGenerating = false;
                 el.btnSend.disabled = false;
@@ -1970,6 +1830,9 @@
                   if (chartPayload) {
                     appendChartSlot(streamingContentDiv, chartPayload);
                   }
+                  if (navPayload) {
+                    appendUiNavigateButton(streamingContentDiv, navPayload);
+                  }
                   const actionsBar = createMessageActionsBar(answerText, event.detail, agentTrace);
                   streamingContentDiv.appendChild(actionsBar);
                   scrollToBottom();
@@ -1979,19 +1842,11 @@
                   streamingBubbleText = null;
                   streamedText = '';
                 } else {
-                  appendMessage('assistant', answerText, event.detail, chartPayload, agentTrace);
+                  appendMessage('assistant', answerText, event.detail, chartPayload, agentTrace, navPayload);
                 }
                 continue;
               }
 
-              upsertGraphNode(
-                event.node_id,
-                event.status,
-                event.input,
-                event.output,
-                event.meta,
-                event.duration_ms
-              );
               state.streamEventsCount++;
 
               if (
@@ -2013,7 +1868,7 @@
         }
 
       }
-      if (!hasAnswer && currentRunId === graphRunId) {
+      if (!hasAnswer && currentRunId === streamRunId) {
         removeThinkingIndicator();
         const fallbackText = state.lastStreamError
           ? ('⚠️ ' + state.lastStreamError)
@@ -2046,18 +1901,13 @@
         scrollToBottom();
       }
     }).catch(err => {
-      if (currentRunId !== graphRunId) return;
+      if (currentRunId !== streamRunId) return;
       if (err.name === 'AbortError') {
         removeThinkingIndicator();
         return;
       }
       
       removeThinkingIndicator();
-      const placeholder = document.getElementById('graph-placeholder');
-      if (placeholder) {
-        placeholder.classList.remove('hidden');
-        placeholder.textContent = 'Lỗi Stream SSE';
-      }
       const msg = err.isCustomMsg ? err.message : '⚠️ **Lỗi kết nối**: Không thể kết nối tới backend/API. Vui lòng kiểm tra lại hệ thống.';
       const targetSession = state.sessions.find(item => item.id === currentSessionId);
       if (targetSession) {
@@ -2078,7 +1928,7 @@
         msg
       );
     }).finally(() => {
-      if (currentRunId === graphRunId) {
+      if (currentRunId === streamRunId) {
         state.isGenerating = false;
         el.btnSend.disabled = false;
         el.questionInput.focus();

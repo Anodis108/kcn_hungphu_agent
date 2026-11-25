@@ -25,6 +25,7 @@ class Agent_Output(BaseModel):
     answer: str
     query: QueryResult | None = None
     detail: str = ""
+    ui_navigate: dict[str, str] | None = None
 
 
 class AssistantState(TypedDict, total=False):
@@ -49,6 +50,7 @@ class AgentState(TypedDict, total=False):
     original_question: str
     rewritten: RewrittenQuestion
     intent: str
+    iteration_count: int
     answer: str
     stream_tokens: bool
     messages: Annotated[list, add_messages]

@@ -1,0 +1,130 @@
+name: eval-gate
+
+# G10 / G15 — Eval Gate Workflow (Phase 21.2)
+#
+# Hai chế độ:
+# 1) PR chạm prompts/agents/eval/models: chạy offline gate (--gate --baseline resource/eval/results/baseline-offline.json) chặn merge nếu tụt accuracy.
+#    Chiến lược (Strategy A): Sử dụng file baseline riêng cho môi trường hermetic offline (`baseline-offline.json`),
+#    đo lường các case guardrail, injection, out-of-scope trong môi trường CI không có database thật và không có LLM API key (pass rate ~18.18%).
+#    Môi trường live/production eval vẫn dùng `baseline.json` (tỷ lệ 90%) cho nightly schedule hoặc khi có API key.
+# 2) Schedule nightly: chạy live eval với continue-on-error nếu có API key trong secrets, bỏ qua có log nếu không có.
+
+'on':
+  pull_request:
+    paths:
+      - 'src/infra/prompts/**'
+      - 'src/domain/agents/**'
+      - 'resource/eval/**'
+      - 'config/models.yaml'
+  schedule:
+    - cron: '0 2 * * *' # 02:00 UTC nightly
+  workflow_dispatch:
+
+concurrency:
+  group: eval-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval-gate:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Eval Gate (offline)
+        # Strategy A: Hermetic offline PR eval gate so với baseline-offline.json.
+        # Chạy hermetic không cần LLM API key hay live DB (kiểm tra guardrails input/output, injection, out-of-scope).
+        # Không gây false-block PR vì so sánh với baseline hermetic offline thực tế (~18.18% thay vì live baseline 90%).
+        run: |
+          PYTHONPATH=.:resource python resource/eval/run.py --offline --gate --baseline resource/eval/results/baseline-offline.json | tee eval-output.log
+
+      - name: Write report to step summary
+        if: always()
+        run: |
+          echo "### Eval Gate Summary" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f resource/eval/results/golden-30-offline.md ]; then
+            cat resource/eval/results/golden-30-offline.md >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f eval-output.log ]; then
+            cat eval-output.log >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No eval output generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload eval results artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-gate-results
+          path: |
+            resource/eval/results/golden-30-offline.md
+            eval-output.log
+          if-no-files-found: warn
+
+  eval-nightly:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check LLM API key
+        id: check-key
+        run: |
+          if [ -n "${{ secrets.OPENAI_API_KEYS }}" ] || [ -n "${{ secrets.OPENAI_API_KEY }}" ] || [ -n "${{ secrets.MODEL_API_KEY }}" ]; then
+            echo "has_key=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_key=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping nightly eval: No LLM API key configured in secrets."
+          fi
+
+      - name: Run nightly eval (live)
+        if: steps.check-key.outputs.has_key == 'true'
+        continue-on-error: true
+        env:
+          PYTHONPATH: '.:resource'
+          OPENAI_API_KEYS: ${{ secrets.OPENAI_API_KEYS }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
+        run: |
+          python resource/eval/run.py --no-judge | tee eval-nightly.log
+
+      - name: Write nightly report to step summary
+        if: always()
+        run: |
+          echo "### Nightly Eval Summary" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f resource/eval/results/golden-30.md ]; then
+            cat resource/eval/results/golden-30.md >> "$GITHUB_STEP_SUMMARY"
+          elif [ -f eval-nightly.log ]; then
+            cat eval-nightly.log >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Nightly eval skipped or no output generated." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload nightly eval artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-nightly-results
+          path: |
+            resource/eval/results/golden-30.md
+            eval-nightly.log
+          if-no-files-found: warn

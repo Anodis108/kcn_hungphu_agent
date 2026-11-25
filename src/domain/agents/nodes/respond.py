@@ -109,14 +109,16 @@ def respond_node(state: AgentState) -> dict:
         detail = intent or 'chat'
         result = Agent_Output(question=q_original, answer=ans, detail=detail)
         emit_answer_chunks(ans, enabled=stream_tokens)
-        return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='inline', intent=intent), output={'answer_vi': ans, 'answer_source': 'inline'}, meta={'llm_used': False, 'user_id': user_id, 'session_id': session_id})]}
+        iter_hops = int(state.get('iteration_count') or 0)
+        return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='inline', intent=intent), output={'answer_vi': ans, 'answer_source': 'inline'}, meta={'llm_used': False, 'user_id': user_id, 'session_id': session_id, 'supervisor_hops': iter_hops})]}
     if respond_mode == 'out_of_scope':
         with trace_step(current_span(), 'respond_out_of_scope', input={'intent': intent}, as_type='tool') as sub:
             ans = ((state['answer'] if 'answer' in state else None) or '').strip() or OUT_OF_SCOPE_REPLY
             sub['output'] = {'answer_len': len(ans)}
         result = Agent_Output(question=q_original, answer=ans, detail='out_of_scope')
         emit_answer_chunks(ans, enabled=stream_tokens)
-        return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='out_of_scope'), output={'answer_vi': ans, 'answer_source': 'out_of_scope'}, meta={'llm_used': False, 'user_id': user_id, 'session_id': session_id})]}
+        iter_hops = int(state.get('iteration_count') or 0)
+        return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='out_of_scope'), output={'answer_vi': ans, 'answer_source': 'out_of_scope'}, meta={'llm_used': False, 'user_id': user_id, 'session_id': session_id, 'supervisor_hops': iter_hops})]}
     if is_multi_respond:
         from src.domain.agents.nodes.plan import is_all_events_plan
         with trace_step(current_span(), 'synthesize_multi', input={'step_count': len(step_results)}, as_type='tool') as sub:
@@ -151,7 +153,8 @@ def respond_node(state: AgentState) -> dict:
         result = Agent_Output(question=q_original, answer=ans, query=query_res, detail='orchestrator:multi')
         emit_answer_chunks(ans, enabled=stream_tokens)
         chart_meta = chart_spec.model_dump() if chart_spec else {}
-        return {'result': result, 'chart_png_base64': chart_png, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='multi', orchestrator_step_results=step_results, step_count=len(step_results)), output={'answer_vi': ans, 'answer_source': answer_source, 'stat_answer': stat.model_dump(), 'query': query_res.model_dump()}, chart_png_base64=chart_png, chart_meta=chart_meta, chart_spec=chart_meta, meta={'llm_used': llm_used, 'user_id': user_id, 'session_id': session_id, 'is_multi': True})]}
+        iter_hops = int(state.get('iteration_count') or 0)
+        return {'result': result, 'chart_png_base64': chart_png, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='multi', orchestrator_step_results=step_results, step_count=len(step_results)), output={'answer_vi': ans, 'answer_source': answer_source, 'stat_answer': stat.model_dump(), 'query': query_res.model_dump()}, chart_png_base64=chart_png, chart_meta=chart_meta, chart_spec=chart_meta, meta={'llm_used': llm_used, 'user_id': user_id, 'session_id': session_id, 'is_multi': True, 'supervisor_hops': iter_hops})]}
     if respond_mode == 'docs':
         docs_payload = (state['docs_answer'] if 'docs_answer' in state else None) or {}
         ans = ((state['answer'] if 'answer' in state else None) or (docs_payload['answer_vi'] if 'answer_vi' in docs_payload else None) or '').strip()
@@ -159,7 +162,8 @@ def respond_node(state: AgentState) -> dict:
             ans = 'Không tìm thấi tài liệu hướng dẫn phù hợp.'
         result = Agent_Output(question=q_original, answer=ans, detail='docs')
         emit_answer_chunks(ans, enabled=stream_tokens)
-        return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='docs'), output={'answer_vi': ans, 'docs_answer': docs_payload}, meta={'llm_used': False, 'user_id': user_id, 'session_id': session_id})]}
+        iter_hops = int(state.get('iteration_count') or 0)
+        return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='docs'), output={'answer_vi': ans, 'docs_answer': docs_payload}, meta={'llm_used': False, 'user_id': user_id, 'session_id': session_id, 'supervisor_hops': iter_hops})]}
     from src.domain.agents.knowledge.docs_agent.tools.camera_registry import is_camera_count_query, is_camera_list_query, format_camera_count_answer, format_camera_list_answer
     if is_camera_count_query(q):
         ans, rows, columns = format_camera_count_answer()
@@ -246,8 +250,15 @@ def respond_node(state: AgentState) -> dict:
         if isinstance(r, (list, tuple)):
             return list(r)
         return [r]
+    from src.domain.agents.ui_navigate import resolve_ui_navigate
+    ui_nav = resolve_ui_navigate(q_original, state)
     query_res = QueryResult(tool='sql_builder', columns=columns, rows=[_row_as_list(r) for r in rows] if rows else [], row_count=len(rows) if rows else 0, error=error or '', reply_vi=ans)
-    result = Agent_Output(question=q_original, answer=ans, query=query_res, detail='query_data')
+    result = Agent_Output(question=q_original, answer=ans, query=query_res, detail='query_data', ui_navigate=ui_nav)
     if not streamed:
         emit_answer_chunks(ans, enabled=stream_tokens)
-    return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='stat', columns=columns, rows=rows, row_count=len(rows), recalled_memories=filter_memories_for_stat((state['recalled_memories'] if 'recalled_memories' in state else None) or [], q), error=error or ''), output={'answer_vi': ans, 'answer_source': answer_source, 'stat_answer': stat.model_dump(), 'query': query_res.model_dump()}, meta={'llm_used': llm_used, 'user_id': user_id, 'session_id': session_id})]}
+    iter_hops = int(state.get('iteration_count') or 0)
+    meta_dict = {'llm_used': llm_used, 'user_id': user_id, 'session_id': session_id, 'supervisor_hops': iter_hops}
+    resp_output: dict[str, Any] = {'answer_vi': ans, 'answer_source': answer_source, 'stat_answer': stat.model_dump(), 'query': query_res.model_dump()}
+    if ui_nav:
+        resp_output['ui_navigate'] = ui_nav
+    return {'result': result, 'events': [node_event('respond', input=respond_event_input(state, respond_mode='stat', columns=columns, rows=rows, row_count=len(rows), recalled_memories=filter_memories_for_stat((state['recalled_memories'] if 'recalled_memories' in state else None) or [], q), error=error or ''), output=resp_output, meta=meta_dict)]}

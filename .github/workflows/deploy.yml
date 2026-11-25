@@ -1,0 +1,78 @@
+name: deploy
+
+# Phase 21.4 — Skeleton deploy SSH sang VM (G14 / G15).
+# Mặc định TẮT (ENABLE_SSH_DEPLOY = 'false').
+#
+# LƯU Ý: Không bật cùng lúc với workflow CD khác để tránh tranh chấp deployment trên cùng một máy chủ.
+# Chỉ chạy khi:
+#   1. CI trên main thành công (hoặc kích hoạt thủ công qua workflow_dispatch)
+#   2. Biến ENABLE_SSH_DEPLOY được cấu hình tường minh là 'true' trong GitHub Actions Variables.
+
+'on':
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ssh
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-ssh:
+    if: >
+      vars.ENABLE_SSH_DEPLOY == 'true' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Validate SSH environment variables
+        env:
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          missing=""
+          [ -n "$VM_HOST" ] || missing="$missing VM_HOST"
+          [ -n "$VM_USER" ] || missing="$missing VM_USER"
+          [ -n "$VM_SSH_KEY" ] || missing="$missing VM_SSH_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Thiếu cấu hình SSH deploy:$missing — cấu hình trong Settings -> Secrets/Variables"
+            exit 1
+          fi
+
+      - name: Setup SSH key
+        env:
+          VM_SSH_KEY: ${{ secrets.VM_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$VM_SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H "${{ vars.VM_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy on remote VM via release.sh
+        env:
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+        run: |
+          SHA=$(git rev-parse --short HEAD)
+          echo "Deploying commit $SHA to $VM_USER@$VM_HOST..."
+          ssh "$VM_USER@$VM_HOST" "cd /opt/chatkcn && git fetch && git checkout $SHA && ./deploy/release.sh build && ./deploy/release.sh deploy $SHA && ./deploy/release.sh smoke"
+
+      - name: Rollback on remote VM if deployment failed
+        if: failure()
+        env:
+          VM_HOST: ${{ vars.VM_HOST }}
+          VM_USER: ${{ vars.VM_USER }}
+        run: |
+          echo "Deployment failed. Triggering remote rollback..."
+          ssh "$VM_USER@$VM_HOST" "cd /opt/chatkcn && ./deploy/release.sh rollback && ./deploy/release.sh smoke" || true

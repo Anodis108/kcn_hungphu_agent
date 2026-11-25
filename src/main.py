@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import logging
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -12,6 +13,8 @@ from fastapi.staticfiles import StaticFiles
 
 from src.domain.agents.graph import Agent_Input
 from src.shared.settings import settings
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -29,6 +32,7 @@ async def _lifespan(_app: FastAPI):
         ensure_feedback_storage(load_legacy_feedback_for_migration)
         if settings.short_term_memory_enabled:
             get_checkpointer()
+
     yield
 
 
@@ -76,11 +80,6 @@ def run_agent_stream(
     )
 
 
-from src.api.helpers.errors import (
-    USER_ERROR_MAX_LEN,
-    format_error_message as _format_error_message,
-    short_user_error as _short_user_error,
-)
 from src.api.routers import (
     agent_router,
     auth_router,
@@ -91,20 +90,6 @@ from src.api.routers import (
     stream_agent,
 )
 from src.api.models.schemas import ChatRequest, ChatResponse
-from src.infra.memory.ttl_cache import _cache, get_ttl_cached, make_cache_key, set_ttl_cached
-
-
-def _lookup_ttl_cache(question: str) -> dict | None:
-    from src.api.helpers.cache_helpers import is_identity_query
-
-    q = (question or "").strip()
-    if not q or is_identity_query(q):
-        return None
-    try:
-        return get_ttl_cached(make_cache_key(q))
-    except Exception:
-        return None
-from src.api.helpers.sse_helpers import build_chart_sse_event as _build_chart_sse_event
 from src.domain.guardrails import GuardrailViolation, rejection_detail
 app = FastAPI(
     title="agent_ATIN v3 API",

@@ -16,15 +16,19 @@ Không cần zip script sẵn. **File này là nguồn sự thật.** Khi xong, 
 5. Logout khi **tắt app Orca** (không mỗi tab agent), trừ lifecycle Claude theo task ở trên.
 6. Logout **không** reset quota Anthropic.
 7. Không commit credentials / `.credentials.json` vào git.
-8. **Session Cursor (tuỳ chọn):** ưu tiên reuse pane/session đang mở khi tiện; **không bắt buộc** cấm spawn worker/tab mới — spawn khi role cần (Test writer / Reviewer-5a) hoặc user yêu cầu.
-9. **SDD theo guide tiếng Việt:** đọc + làm theo `Spec Driven Development Guide - Vietnamese.md` (cạnh repo / copy theo máy). Spec sống **chỉ** 4 file trong `specs/`; **một phase/task một lần**; sau mỗi lần triển khai → tick plan + `specs/change-log.md` + cách test.
+8. **Session Cursor (tuỳ chọn):** ưu tiên reuse pane khi tiện; spawn khi role cần (Test writer / Reviewer-5a). **Pre-gather (§0.8 / `_PRE_GATHER.md`):** phase lớn / diff·log·ảnh nặng → **Antigravity** (factual only: filtered diff, sanitized test/smoke, regex checklist) → `*-pre-gather.md` → **5a Cursor** verdict. Fix-only nhỏ → bỏ qua AG. AG **không** `Approved`|`Blocked`.
+9. **SDD theo guide tiếng Việt:** đọc + làm theo `Spec Driven Development Guide - Vietnamese.md` (cạnh repo / copy theo máy). Spec lõi **4 file** trong `specs/` (+ living: `task-delta`, gap, handoff, agent-reports); **một phase/task một lần**; sau mỗi lần triển khai → tick plan + `specs/change-log.md` + **`specs/task-delta.md`** (**Task** = làm gì/mục đích + đổi gì + link `#L…` **chỉ** chỗ sửa; click **phải** nhảy đúng dòng đã đổi — cấm lazy `#L1` trên file đã edit; **không** dán before/after; cấm chỉ ghi số phase) + cách test; đổi quy ước playbook → sync `orca_setup/`.
 10. **Cổng review mỗi feature (§6c):** Implement → Review vs acceptance → Fix-only nếu Blocked → `Approved` rồi mới task kế. Cấm nhảy task khi chưa Approved.
 11. Playbook này là **template mọi project** trên máy (không chỉ FGS); FGS chỉ là repo mang file đi.
-12. **Coordinator (ô Spec/Cursor) chỉ điều phối:** phân loại câu hỏi → dispatch đúng role (§15b). Không tự đọc docs/repo để tổng kết thay Explorer; không code thay Implementer; không viết spec thay Planner — trừ khi việc đó là meta-setup khung Orca hoặc không thuộc role nào. **Không** bỏ qua cổng §6c.
+12. **Coordinator (ô Spec/Cursor) chỉ điều phối:** phân loại câu hỏi → dispatch đúng role (§15b). **Ưu tiên agent trong quy ước:** task mà role canonical làm được → dùng đúng agent đó (Implementer=Antigravity, 5a=Cursor, Planner/5b=Claude, …); không thay vì “thông minh hơn” trừ user Explicit hoặc agent quy ước không launch được. Không tự đọc docs/repo để tổng kết thay Explorer; không code thay Implementer; không viết spec/plan thay Planner (kể cả sau khi user *Approve* design trong grill) — trừ meta-setup khung Orca hoặc user Explicit bảo Coordinator làm. **Hotfix / ops / “sửa nhanh trong chat” cũng vậy:** Coord **cấm** tự patch code; phải `worker-start` **Implementer** → **Reviewer** (§6c) đủ vòng (Fix-only nếu Blocked) rồi mới coi xong — trừ user Explicit *Coord tự làm*. **Không** bỏ qua cổng §6c.
 13. **Mọi agent phải báo về Coordinator khi xong** (§15c): ghi `specs/agent-reports/*` + `worker_done` (khi có dispatch). Chỉ in trong pane = **chưa xong**. Coordinator bắt buộc đọc report rồi mới đưa hướng đi tiếp.
 14. **Auto-wake Coordinator (§15e) — bắt buộc:** pane Cursor thường **không** nhận `worker_done` thành turn mới. Sau mỗi `worker-start`, Coordinator **phải** chạy `orca-coord-watch --run <runId> --terminal <coordTerm> --workdir <project>`. Không chờ user nhắc / paste ảnh.
-15. **Verify sau task lớn** (§18): tool check trước; AI không thay lint/typecheck/unit; review đối kháng + bằng chứng; eval metric khi có ground truth.
-16. **Tên tab/session Orca bắt buộc** theo bảng §15d (vd. `03 Planner (Claude)`). Mỗi lần `agent launch` / tạo pane / rename: đặt đúng title đó — không để tên mặc định agent.
+15. **Vòng điều phối đến hết nhiệm vụ (§15f) — bắt buộc:** khi nhận wake/report → tóm tắt user → **ngay** dispatch bước tiếp (đúng role) → lặp cho đến khi hết checklist wave / user Explicit dừng. Cấm dừng giữa chừng chỉ vì “đã báo một lần”.
+16. **Lane song song có điều kiện (§15g):** được nhân bản Implementer (04a/04b…) **chỉ khi** plan có `parallel_ok` + `touches` không giao; mỗi lane vẫn đủ cổng §6c. Fail-closed nếu overlap. Shared specs = một writer sau Approved.
+17. **Verify sau task lớn** (§18): tool check trước; AI không thay lint/typecheck/unit; review đối kháng + bằng chứng; eval metric khi có ground truth.
+18. **Tên tab/session Orca bắt buộc** theo bảng §15d (vd. `03 Planner (Claude)`). Mỗi lần `agent launch` / tạo pane / rename: đặt đúng title đó — không để tên mặc định agent. Nhân bản Implementer: `04a Implementer (Antigravity)`, `04b Implementer (Antigravity)`.
+19. **Skill theo role (§15g Skill matrix):** Coord Cursor = `using-superpowers` + orchestration; Planner Claude = **`grill-me`** rồi plan; Implementer AG = **`ponytail`**; Reviewer = verify (+ `ponytail-review` nếu AG). Skill không tự cross-runtime — ghi trong `roles/*.md` + brief.
+20. **`turn_start_unobserved` / stall:** không để lane đứng im. Sau ~1–2 phút vẫn `start_unknown`/idle → abandon + retry canonical khác hoặc Cursor overflow; sau re-auth AG → probe rồi **giao việc ngay**.
 
 ---
 
@@ -208,7 +212,8 @@ Nguồn: `Spec Driven Development Guide - Vietnamese.md` trong gói này (và b�
 | Bước | Ai | Việc |
 |------|-----|------|
 | Plan + review MVP | Planner (+ user/Coordinator xác nhận) | Viết/chỉnh 4 file; làm rõ acceptance; **chưa code** |
-| Implement 1 task | Implementer | Chỉ 1 `[ ]`; trước code: tóm tắt what/files/how-test; sau: tick + `change-log` + lệnh test |
+| **Tự review plan** | Planner | Guide VN bước 3 — tiêu chí chất lượng (§6d); **không** cố định số đầu mục; report `plan_self_review: pass` trước khi Implement |
+| Implement 1 task | Implementer | Chỉ 1 `[ ]`; trước code: tóm tắt what/files/how-test; sau: tick + `change-log` + **`task-delta`** (Task = làm gì + links `#L…`; không paste diff) + lệnh test |
 | Test acceptance | Test writer | Map acceptance → test; song song Implementer trên cùng task |
 | Review | Reviewer 5a → (tuỳ) 5b | So `product-spec` + `test-plan`: pass / fail / missing; `Approved` \| `Blocked` + bằng chứng |
 | Fix | Implementer / Test | **Chỉ** lỗi của task hiện tại; cập nhật `change-log`; **không** mở task mới |
@@ -217,6 +222,32 @@ Nguồn: `Spec Driven Development Guide - Vietnamese.md` trong gói này (và b�
 
 Coordinator **cấm** bỏ qua cổng review. Worker **cấm** tự nhảy sang task kế trong cùng một turn sau khi implement. Coordinator kiểm tra gap tracker đã khớp trước khi mở task kế liên quan G\*.
 
+**Cổng plan:** Coordinator **cấm** `worker-start` Implementer cho wave mới nếu Planner report thiếu `plan_self_review: pass` (trừ user Explicit *bỏ qua self-review plan*).
+
+---
+
+## 6d. Tự review Implementation Plan (bắt buộc — số mục không cố định)
+
+Nguồn: guide VN **Bước 3** (đã sửa: ví dụ 7 phase chỉ là greenfield mẫu).
+
+| | |
+|--|--|
+| **Khi nào** | Mỗi lần Planner viết/đổi `specs/implementation-plan.md` cho một wave / tính năng |
+| **Ai** | Planner (rồi user có thể Approve); không phải Implementer tự “review plan bằng cách code” |
+| **Số phase / `[ ]`** | Do **scope lần đó** — không ép N mục, không copy list Project setup→ngrok |
+
+**Tiêu chí pass (sửa plan đến khi đạt):**
+
+1. Chỉ việc in-scope; out-of-scope / Non-goals không thành `[ ]`.
+2. Mỗi `[ ]` một slice kiểm chứng được.
+3. Có acceptance hoặc cách test.
+4. Có files/touches; song song thì đủ §15g metadata.
+5. `depends` / thứ tự rõ.
+6. Không đổi kiến trúc lén.
+7. MVP — cắt nice-to-have khỏi wave hiện tại.
+
+Report Planner: `plan_self_review: pass` (+ bullet nếu đã rewrite). Chi tiết: `roles/02-planner.md`.
+
 ---
 
 ## 6b. Phân vai chi tiết (bảng chuẩn)
@@ -224,10 +255,11 @@ Coordinator **cấm** bỏ qua cổng review. Worker **cấm** tự nhảy sang 
 | # | Session | AI | Mức token | Việc làm |
 |---|---------|-----|-----------|----------|
 | 1 | Explorer | **Antigravity** (context lớn / Gemini Flash High) | **Nặng** | Đọc cả repo; tạo `REPO_DIGEST.md`: cấu trúc, module chính, conventions, chỗ cần sửa / rủi ro, cách chạy-test. **Không sửa production code.** |
-| 2 | Planner | **Claude Code (plan-mode)** → fallback cursor→antigravity | **Nhẹ** | Chỉ đọc `REPO_DIGEST.md` + vài file then chốt; viết/cập nhật **4 file** `specs/` theo guide VN (§14b). Pass review MVP (rõ, đơn giản) trước khi code. **Không implement.** Xong → logout Claude. |
+| 2 | Planner | **Claude Code (plan-mode)** → fallback cursor→antigravity | **Nhẹ** | Đọc digest + then-chốt; cập nhật **4 file** `specs/`; review MVP spec + **tự review plan §6d** (`plan_self_review: pass`). Số phase theo scope — không cố định. **Không implement.** Xong → logout Claude. |
 | 3 | Implementer (1–2 session) | **Antigravity** trên **worktree riêng** (`new-child`) | **Nặng nhất** | **Một** task `[ ]` mỗi vòng; test/lint xanh; sau đó **dừng** chờ review — không tự mở task kế. Fix-only khi Reviewer `Blocked`. |
 | 4 | Test writer | **Cursor** → fallback antigravity | **Vừa** | Test từ acceptance của **cùng** task; song song 3 được. Không nhảy task khi chưa Approved. |
-| 5a | Reviewer round 1 | **Cursor** → fallback antigravity | **Vừa** | So product-spec + test-plan: pass/fail/missing; `Approved`\|`Blocked`. Gate sang task kế (§6c). |
+| 5a | Reviewer round 1 | **Cursor** → fallback antigravity | **Vừa** | So product-spec + test-plan (+ digest pre-gather nếu có); `Approved`\|`Blocked`. Gate §6c. |
+| 5a′ | Pre-gather (trước 5a) | **Antigravity** | **Vừa** | Chỉ factual (`_PRE_GATHER.md`); phase lớn bắt buộc cân nhắc; Fix-only nhỏ skip. |
 | 5b | Reviewer round 2 | **Claude Code** → fallback | **Nhẹ** | Filtered diff + logic nhạy cảm. Xong → logout Claude. Cũng là cổng `Approved`\|`Blocked`. |
 
 **Output bắt buộc theo bước:** `REPO_DIGEST.md` → `specs/` (4 file) → (lặp) code/tests một task → review Approved → task kế → Done.  
@@ -404,7 +436,7 @@ Trên máy khác: giữ file trong `orca_setup/` hoặc copy ra cạnh `specs/`.
 
 1. Viết ý tưởng → chuyển thành spec **trước** khi code; review MVP spec trước khi implement.
 2. **Không** nhờ agent build cả feature/app một lần — đọc `specs/` rồi triển khai **một** phase/task unchecked.
-3. Sau mỗi lần triển khai: tick checklist, cập nhật `specs/change-log.md`, nêu lệnh test.
+3. Sau mỗi lần triển khai: tick checklist, cập nhật `specs/change-log.md` + prepend `specs/task-delta.md` (**Task** = làm gì/mục đích + đổi gì + links `#L…` nhảy đúng dòng đã sửa — cấm lazy `#L1`; không paste before/after); nếu đổi quy ước → sync `orca_setup/`; nêu lệnh test.
 4. **Review lặp** so acceptance (pass/fail/missing) → Fix-only nếu cần → `Approved` rồi mới task kế (§6c).
 5. Không đổi kiến trúc / thêm lib trừ khi đã sửa spec trước.
 6. Chỉ 4 file trong `specs/` — không đẻ plan/spec phụ trừ khi user Explicit.
@@ -417,6 +449,7 @@ specs/
   implementation-plan.md   # phase nhỏ + checklist
   test-plan.md             # cách test (khuyến nghị)
   change-log.md            # ghi sau mỗi lần triển khai
+  task-delta.md            # living: Task=làm gì + đổi gì + links #L… (chỉ chỗ lệch vs main; không paste diff)
 ```
 
 Kèm `AGENTS.md` ở root project (rule hành vi agent — luôn đọc specs trước khi code).
@@ -435,7 +468,8 @@ Kèm `AGENTS.md` ở root project (rule hành vi agent — luôn đọc specs tr
 | Explorer | Antigravity | Đọc repo/docs/specs → digest / tổng kết trạng thái / tìm artifact |
 | Planner / Reviewer-5b | Claude | Login→làm→logout |
 | Implementer | Antigravity | Code theo plan; worktree `new-child` khi nặng |
-| Test writer / Reviewer-5a | Cursor | Reuse pane nếu có; spawn session mới **được phép** khi cần |
+| Test writer / Reviewer-5a | Cursor | Reuse pane nếu có; spawn khi cần |
+| Pre-gather (diff lọc / log sạch / checklist máy / ảnh) | **Antigravity** → `*-pre-gather.md` | Trước 5a Cursor; không thay Approved\|Blocked (`_PRE_GATHER.md`) |
 
 Ưu tiên inject/dispatch vào pane đang mở khi đủ; spawn worker mới không bị cấm nếu role/workload cần.
 
@@ -470,27 +504,39 @@ Coordinator setup khung: tạo/đổi tên đủ 01–06 trước khi giao việ
 
 ## 15b. Luật điều phối (Coordinator = Cursor Spec)
 
-Coordinator **không làm thay** việc thuộc role khác. Mỗi câu hỏi / yêu cầu của user:
+Coordinator **không làm thay** việc thuộc role khác. **Giao đúng agent đúng nhiệm vụ** — user không cần nhắc lại mỗi lần.
+
+Mỗi câu hỏi / yêu cầu của user:
 
 1. **Phân loại** → chọn đúng role (§6b + bảng dưới).
 2. **Dispatch** vào pane/agent đó (`worker-start --terminal …` hoặc `terminal send` / orchestration `send`).
-3. **Chờ** báo cáo → tóm tắt ngắn cho user (không tự đọc lại cả repo để trả lời thay).
-4. **Chỉ tự trả lời** khi: meta về khung Orca/playbook/setup máy, hoặc không khớp role nào, hoặc user Explicit yêu cầu Coordinator làm.
+3. **Bật `orca-coord-watch`** (§15e) rồi end turn chờ wake.
+4. Khi wake: tóm tắt ngắn cho user → **dispatch bước tiếp** (§15f) — không tự đọc lại cả repo để trả lời thay role.
+5. **Chỉ tự trả lời** khi: meta khung Orca/playbook/setup máy; **grill fallback** nếu Planner Claude không available; hoặc không khớp role nào; hoặc user Explicit yêu cầu Coordinator làm. **Grill wave mới ưu tiên 03 Planner (Claude) + `grill-me`.**
 
 | Loại câu hỏi / việc | Giao cho | Không giao Coordinator |
 |---------------------|----------|------------------------|
 | Đọc docs/`specs/`/repo → tổng kết đã làm gì, acceptance, tìm thành phẩm/artifact ở đâu | **02 Explorer (Antigravity)** | ❌ tự grep/đọc thay |
-| Viết/sửa `specs/*`, chốt scope/plan MVP | **03 Planner (Claude)** | ❌ viết spec thay |
-| Implement / sửa production code theo plan | **04 Implementer (Antigravity)** | ❌ code thay |
+| Viết/sửa `specs/*`, `implementation-plan`, Non-goals, budget, chốt MVP **sau Approve design** | **03 Planner (Claude)** | ❌ viết plan/spec thay (Approve ≠ Coordinator được code docs) |
+| Hotfix / bug / ops “sửa nhanh” (kể cả 1 file FE/compose/env wire) | **04 Implementer** rồi **05 Reviewer** (§6c; Fix-only nếu Blocked) | ❌ Coord tự patch “cho nhanh” |
+| Implement / sửa production code theo **một** task `[ ]` | **04 Implementer (Antigravity)** | ❌ code thay |
 | Viết/sửa tests từ acceptance | **05 Test writer (Cursor)** | ❌ viết test thay |
-| So diff vs product-spec, thiếu edge case | **06 Reviewer-5a (Cursor)** | ❌ review thay |
+| So diff vs product-spec, thiếu edge case; sanity docs/plan trước code nếu `next_hint` yêu cầu | **06 Reviewer-5a (Cursor)** | ❌ review thay |
+| Pre-gather factual (diff/log/checklist) trước review lớn | **Antigravity** (`_PRE_GATHER.md`) rồi 5a | ❌ AG không verdict |
 | Review logic nhạy cảm / filtered diff | **07 Reviewer-5b (Claude)** | ❌ review thay |
-| Setup playbook, symlink, logout Claude, mở khung pane, fallback token | **Coordinator** (được phép) | — |
+| Grill wave mới với user (`grill-me`) | **03 Planner (Claude)** ưu tiên | Coord chỉ grill **fallback** |
+| Approve sau grill; setup pane; `coord-watch`; logout Claude; tóm tắt + dispatch | **Coordinator** (được phép) | — |
 | Câu mơ hồ | Hỏi user **một** câu làm rõ **hoặc** chọn role gần nhất + ghi giả định khi dispatch | ❌ ôm hết |
 
 **Ví dụ bắt buộc:**  
 User: *“kiểm tra `specs/` đã xong chưa, thành phẩm ở đâu?”*  
 → Coordinator **dispatch Explorer**, không tự đọc `specs/` + `find Synopsis.mp4` rồi trả lời.
+
+User: *“Approve”* sau grill  
+→ Coordinator **dispatch Planner** materialize `implementation-plan` / product-spec — **không** tự ghi plan.
+
+User: *“hotfix / bật lại Langfuse / bỏ cột UI / sửa compose”*  
+→ Coordinator **dispatch Implementer** (1 task rõ touches) → bật `coord-watch` → khi xong **dispatch Reviewer-5a** → chỉ khi `Approved` mới báo user xong (Fix-only nếu Blocked). **Không** tự `StrReplace`/`Write` code trong pane Coord.
 
 **Dispatch skeleton (Explorer) — luôn nhúng REPORT_BACK:**
 
@@ -515,6 +561,7 @@ Mọi `--spec` / `--spec-file` **phải** ghép nội dung `roles/_REPORT_BACK.m
 | Bước | Ai | Việc |
 |------|-----|------|
 | A | Worker | Viết `specs/agent-reports/<timestamp>-<role>.md` (summary + artifacts + `next_hint`) |
+| A2 | Implementer / Test | Prepend `specs/task-delta.md`: **Task** mô tả làm gì (cấm chỉ `21.4`) + đổi gì + links `#L…` **nhảy đúng dòng đã sửa** (cấm lazy `#L1` trên file edit); thiếu mô tả/`#L`/`#L` lệch = chưa xong; đổi quy ước → sync `orca_setup/` |
 | B | Worker | Cập nhật `specs/session-handoff.md` → **Hoàn thành gần nhất** |
 | C | Worker | `orca orchestration send --type worker_done --outcome succeeded\|failed …` khi có Task/Dispatch |
 | D | Coordinator | **Bật `orca-coord-watch` ngay sau `worker-start`** (§15e); khi được inject wake: tóm tắt cho user + chọn bước tiếp |
@@ -528,10 +575,127 @@ Template đầy đủ: `$PLAYBOOK/roles/_REPORT_BACK.md` (copy từ `orca_setup/
 2. **Ngay sau `worker-start` thành công:** chạy `orca-coord-watch` (§15e) — không bỏ bước này.
 3. Kết thúc turn để chờ wake inject; khi wake / `orca-coord-drain` → **ưu tiên** đọc report trước khi làm gì khác.
 4. Xóa/đánh dấu xong dòng Đang chạy; điền Hoàn thành gần nhất; `task-update --status completed` khi worker_done succeeded.
-5. Đưa hướng đi tiếp (một câu rõ: role nào / việc gì) — trừ khi user chỉ hỏi thông tin và chưa muốn làm tiếp.
-6. **Cổng SDD (§6c):** sau Implement/Test → hướng tiếp **bắt buộc** là Reviewer-5a (không phải task kế). Sau `Blocked` → Fix-only cùng task. Sau `Approved` → mới được unchecked task tiếp theo.
+5. Đưa hướng đi tiếp (một câu rõ: role nào / việc gì) và **dispatch ngay** nếu còn việc trong nhiệm vụ user (§15f).
+6. **Cổng SDD (§6c):** sau Implement/Test → (phase lớn: **AG pre-gather** trước) → **Reviewer-5a** (không phải task kế). Sau `Blocked` → Fix-only cùng task. Sau `Approved` → mới được unchecked task tiếp theo.
+7. Claude xong (Planner/5b): `orca-claude-after-task --run <runId>` trước khi launch Claude lần sau.
 
 **`orca-roles-run`:** mỗi role spec phải kết thúc bằng khối REPORT_BACK (script materialize từ §12 phải `cat` `_REPORT_BACK.md` vào cuối spec).
+
+---
+
+## 15f. Vòng điều phối đến hết nhiệm vụ (bắt buộc — lab)
+
+**Yêu cầu user:** khi agent xong, Coordinator **phải** nhận tín hiệu và **tiếp tục** đưa hướng / dispatch cho đến khi hoàn thành nhiệm vụ (vd. hết wave checklist), không chờ user nhắc lại.
+
+```text
+user mission (vd. wave v19)
+        │
+        ▼
+  dispatch đúng role + orca-coord-watch
+        │
+        ▼
+  [ORCA auto-wake] / report mới
+        │
+        ▼
+  drain → đọc report → tóm tắt user
+        │
+        ├─ còn task / cổng review? ──yes──► dispatch role kế (đúng bảng §15b)
+        │                                      │
+        │                                      └── lặp
+        └─ hết checklist hoặc user Explicit dừng ──► báo Done / hỏi merge (§17)
+```
+
+**Luật cứng**
+
+1. **Không dừng** sau một `worker_done` nếu `implementation-plan` (hoặc brief user) còn `[ ]` thuộc mission đang chạy — trừ Blocked chờ user, hoặc user bảo dừng.
+2. Mỗi wake: **một** hướng đi tiếp rõ (role + task id) + `worker-start` (hoặc nói rõ đang chờ user quyết định gì).
+3. **Wake trùng:** cùng `message id` / cùng report file đã xử lý → **không** dispatch lại; nêu trạng thái hiện tại (vd. Implementer đang chạy) và tiếp tục chờ wake đúng.
+4. `next_hint` trong report là gợi ý; Coordinator vẫn phải kiểm tra cổng §6c + bảng §15b trước khi chọn role.
+5. Mission Done chỉ khi: hết `[ ]` trong scope đã Approve, hoặc user Explicit *xong / dừng / đủ rồi*.
+6. Khi plan có lane `parallel_ok` sẵn sàng (§15g): sau Approved task blocker, **được** `worker-start` nhiều Implementer cùng lúc (mỗi lane một pane) — vẫn mỗi lane một Review sau đó.
+
+---
+
+## 15g. Lane song song có điều kiện (nhân bản Implementer — giữ chất lượng)
+
+**Mục tiêu:** tăng tốc bằng nhiều task **độc lập** cùng lúc, **không** bỏ cổng SDD, **không** đụng file chung.
+
+### Khi nào được song song
+
+Planner (hoặc Coordinator khi user Explicit *áp §15g*) gắn metadata trên mỗi phase trong `implementation-plan.md`:
+
+```markdown
+- **parallel_group:** P1
+- **parallel_ok:** yes
+- **touches:** `resource/eval/run.py`, `resource/eval/results/baseline.json`
+- **depends:** 19.5
+```
+
+| Trường | Nghĩa |
+|--------|--------|
+| `parallel_ok` | `yes` mới được mở cùng lane khác; thiếu/`no` → tuần tự |
+| `touches` | Glob/path agent **được phép** sửa; ngoài list = scope creep |
+| `parallel_group` | Cùng group + `depends` thỏa → Coordinator được fan-out |
+| `depends` | Task id phải `Approved` trước khi mở lane |
+
+**Fail-closed:** nếu hai task cùng group mà `touches` giao nhau (cùng file/dir “nóng” như `agent_turn.py`, `graph.py`, `implementation-plan` checklist dòng đang sửa) → **không** song song; chạy tuần tự.
+
+### Luật cứng chất lượng
+
+1. **Mỗi lane** vẫn: Implement (đúng 1 phase) → Reviewer-5a → Fix-only nếu Blocked → `Approved`. Cấm “gộp review” nhiều lane một lần.
+2. **Không** song song Fix-only với task khác nếu `touches` giao.
+3. **Shared specs** (`implementation-plan` tick, `change-log`, `gap-analysis`, `session-handoff`): worker **không** tranh chấp — ghi note trong report; **Coordinator** (hoặc Implementer lane xong sau cùng, tuần tự) merge tick/`[x]` + gap sau từng `Approved`. Prefer: mỗi Implementer chỉ tick phase của mình bằng patch hẹp một hunk; nếu conflict → lane sau rebase/retry.
+4. **Test writer** vẫn ∥ Implementer **trong cùng lane/task** (như §6); không bắt Test writer chạy cross-lane.
+5. **Reviewer:** ưu tiên 1 Reviewer xử lý tuần tự theo lane xong trước; được nhân `06a`/`06b` chỉ khi hai diff thật sự tách và user/plan cho phép.
+6. **Pane:** `04a` / `04b` (Antigravity) — launch thêm nếu chưa có; title đúng §15d/§0.18. Report file vẫn `specs/agent-reports/*-04-implementer.md` (timestamp khác nhau).
+7. Mặc định **1 Implementer**; fan-out chỉ khi ≥2 task `parallel_ok` + `depends` done + `touches` disjoint.
+
+### Việc Coordinator làm khi fan-out
+
+1. Đọc bảng parallel trong plan; xác nhận `depends` đã Approved.
+2. So `touches` — overlap? → tuần tự; không → `worker-start` 04a + 04b (hai spec riêng, ghi rõ `touches` + cấm sửa ngoài list).
+3. `orca-coord-watch` một lần cho Run (đủ cho mọi worker_done).
+4. Mỗi wake: xử lý **đúng** report đó (review lane đó hoặc merge tick); không bỏ lane kia.
+5. Mission chỉ Done khi **mọi** lane trong scope đã Approved (hoặc user dừng).
+
+### Việc Planner làm
+
+Khi viết/chỉnh wave: luôn điền `parallel_ok` / `touches` / `depends` cho từng phase (kể cả `parallel_ok: no`). Không để Coordinator đoán.
+
+### Overflow pane (quota / retry) — ephemerals
+
+Khi phải **spawn pane tạm** (vd. `turn_start_unobserved`, Antigravity quota, Cursor fallback) ngoài bộ title chuẩn §15d:
+
+1. Đặt title rõ: `04a′ overflow (retry)` / `04b′ overflow (cursor-fallback)` — **không** đặt trùng `04a Implementer…` nếu canonical còn sống.
+2. Khi task **settle / abandon / hết quota**: ghi `specs/agent-reports/*-overflow-handoff.md` (temp handle → canonical role, artifacts, Approved/Blocked).
+3. `orca terminal send` tóm tắt vào **canonical** 04a/04b/04c (hoặc role gốc).
+4. **`orca terminal close`** overflow ngay — không giữ duplicate Implementer.
+5. Sau re-auth Antigravity:
+   - User **đăng nhập lại trong đúng pane** canonical bị quota (logout/`agy` restart trên tab đó — account mới trên máy khác pane không đủ).
+   - Coord **probe** ngắn (`worker-start` READY hoặc `agy` một dòng). Còn `Individual quota` → không giao việc; báo user pane chưa re-login.
+   - Probe OK → **ngay lập tức** gán việc mở tiếp theo (Fix-only / phase P1 còn trống / peer lane) — **cấm để canonical đứng im** sau khi account đã sống.
+   - Overflow Cursor/AG cũ: handoff → close (§ trên); việc chuyển về canonical vừa hồi.
+
+Canonical set mặc định: `01`…`06b` (+ `04c` khi §15g P1 cần 3 lane). Mọi pane ngoài set sau handoff = đóng.
+
+### Skill matrix theo role (bắt buộc ghi trong role + brief)
+
+Skill **không** tự lan giữa Cursor / Claude / Antigravity. Phải (1) cài vào runtime đúng agent, (2) ghi trong `roles/*.md`, (3) Coord nhắc trong brief khi cần.
+
+| Role | Runtime | Skills bắt buộc | Skills khuyến nghị | Không dùng |
+|------|---------|-----------------|--------------------|------------|
+| **01 Coord** | Cursor | `using-superpowers` (meta: check skill trước mọi action), `orchestration`, `grill-me` (fallback nếu Planner không grill), `dispatching-parallel-agents`, `finishing-a-development-branch`, `verification-before-completion` | `brainstorming` khi design xanh | `ponytail` viết app; TDD implement |
+| **02 Explorer** | Antigravity | (đọc repo) | `ponytail` khi tóm tắt | grill / writing-plans |
+| **03 Planner** | **Claude** | **`grill-me`** (interview user trước plan wave mới trừ brief ghi `grill_skipped: Approved`), `writing-plans` / plan_self_review §6d | `brainstorming` nếu scope lớn chưa chốt | implement / review adversarial dài |
+| **04 Implementer** | Antigravity | **`ponytail` (full)** mỗi task; `verification-before-completion` | `test-driven-development`, `systematic-debugging` (Fix-only) | grill user; viết wave plan |
+| **05 Test** | Cursor | `test-driven-development`, `verification-before-completion` | `using-superpowers` | grill design |
+| **06 Reviewer-5a** | Cursor | adversarial checklist; `verification-before-completion` | AG `_PRE_GATHER` trước phase lớn; AG overflow: `ponytail-review` | implement |
+| **05′ Pre-gather** | Antigravity | factual only (`_PRE_GATHER.md`) | không verdict | phán Approved/Blocked |
+| **07 Reviewer-5b** | Claude | logic/diff nhạy cảm | `grill-me` không — đã qua plan | implement |
+
+**`using-superpowers`:** meta-skill Cursor (“trước mọi việc, invoke skill liên quan”). Gắn **01 Coord** (bắt buộc) + mọi **Cursor** pane (05/06a) khi mở turn. Claude/Antigravity: không có slash Cursor — thay bằng dòng role “trước khi làm, load skill list của runtime (Claude `~/.claude/skills`, AG `~/.gemini/antigravity/skills`) và chạy skill khớp”.
+
+**`grill-me` trên Claude (03):** user ưu tiên Claude thông minh hơn Cursor cho interview. Wave mới: Planner **hỏi từng câu** (design tree) → user trả lời (qua pane / `ask`) → rồi mới viết 4 specs. Coord brief có `grill_skipped: <lý do Explicit>` thì bỏ grill, chỉ `plan_self_review`.
 
 ---
 
@@ -559,7 +723,8 @@ orca-coord-watch \
 
 - Đổi Run / đổi project → chạy lại `orca-coord-watch` (script thay daemon cũ).
 - Dừng: `orca-coord-watch --stop`.
-- Khi nhận tin `[ORCA auto-wake]`: chạy `orca-coord-drain --run <runId> --workdir <project>` (hoặc tương đương), đọc report, tóm tắt user, dispatch bước tiếp — **không** hỏi lại “đã xong chưa?”.
+- Khi nhận tin `[ORCA auto-wake]`: chạy `orca-coord-drain --run <runId> --workdir <project>` (hoặc tương đương), đọc report, tóm tắt user, **dispatch bước tiếp theo §15f** — **không** hỏi lại “đã xong chưa?” và **không** chờ user paste ảnh / nhắc “tiếp đi”.
+- Wake trùng cùng msg/report đã settle → bỏ qua dispatch trùng; báo đang chờ worker nào.
 
 **Không** coi “end turn và hy vọng Orca native wake Cursor” là đủ trên máy lab dùng Cursor làm Coordinator.
 
@@ -647,13 +812,17 @@ Chỉ khi user Explicit chọn (vd. *“merge local vào main”*, *“cho phép
 | Không spawn Cursor mới | **Không bắt buộc** — chỉ ưu tiên reuse | §0.8, §15 |
 | SDD theo guide VN (`specs/` + 1 task/lần + change-log) | Có | §0.9, §14b |
 | Cổng review mỗi feature (Implement→Review→Fix→Approved→task kế) | Có | §0.10, §6, §6c, §15c |
+| Tự review plan (số mục không cố định) trước Implement | Có | §6c, §6d, roles/02-planner, guide VN bước 3 |
 | Bọc FGS / metrics / GPU fixture / TDD | Có | §14 |
 | Coordinator chỉ điều phối; đọc docs/tổng kết → Explorer | Có | §15b |
 | Mọi agent báo Coordinator (file inbox + worker_done) | Có | §0.13, §15c |
 | Auto-wake Cursor Coordinator (`orca-coord-watch`) | Có | §0.14, §15e |
+| Đúng role; Approve → Planner; vòng đến hết mission | Có | §0.12, §0.15, §15b, §15f |
+| Lane song song `parallel_ok` + `touches` disjoint | Có | §0.16, §15g |
+| Wake trùng không dispatch lại | Có | §15f.3, §15e |
 | Sau xong workspace: test → commit → merge main → (push) → không tự xóa Orca WT | Có | §17 |
 | Verify: review đối kháng + bằng chứng; eval metric; không AI thay lint/test | Có | §18 |
-| Tên tab `01 Spec / Coordinator` … `06 Reviewer-5a (Cursor)` | Có | §0.16, §15d |
+| Tên tab `01 Spec / Coordinator` … `04a`/`04b` Implementer … | Có | §0.18, §15d, §15g |
 | Interactive login Claude khi start | Có | §8 |
 | Materialize scripts + symlink trên máy mới | Có | §2–§3, §12 |
 

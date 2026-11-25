@@ -32,10 +32,11 @@ def is_followup_question(question: str, prev_messages: list) -> bool:
 
 
 def lookup_ttl_cache(question: str) -> dict[str, Any] | None:
-    if is_identity_query(question):
+    q = (question or "").strip()
+    if not q or is_identity_query(q):
         return None
     try:
-        return get_ttl_cached(make_cache_key(question))
+        return get_ttl_cached(make_cache_key(q))
     except Exception as exc:
         logger.warning("TTL cache lookup failed, degrading to cache miss: %s", exc)
         return None

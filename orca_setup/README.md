@@ -4,7 +4,7 @@ Cho agent / bạn: **bắt đầu từ `ORCA-AGENT-SETUP.md`**.
 
 | File | Việc |
 |------|------|
-| `ORCA-AGENT-SETUP.md` | Nguồn sự thật: setup máy + DAG + SDD loop (§6c) + auto-wake (§15e) + verify + merge |
+| `ORCA-AGENT-SETUP.md` | Nguồn sự thật: setup + DAG + SDD (§6c) + đúng role (§15b) + auto-wake (§15e) + §15f mission + §15g parallel/skills (`grill-me` Claude, `using-superpowers` Coord, `ponytail` Implementer) |
 | `OPEN-IN-ORCA.md` | 3 bước mở trên máy cá nhân |
 | `AGENTS.md` | Rule ngắn trỏ về setup |
 | `Spec Driven Development Guide - Vietnamese.md` | Guide SDD (specs/) |

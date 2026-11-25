@@ -167,31 +167,44 @@ Bạn có một product spec MVP rõ ràng, gọn và dễ triển khai.
 
 ---
 
-## Bước 3: Cải thiện Implementation Plan
+## Bước 3: Cải thiện Implementation Plan (+ tự review plan)
 
 ### Việc bạn làm
-Chia app thành các task nhỏ có thể build được.
+Chia **phạm vi lần này** thành các task nhỏ có thể build được — rồi **tự review lại plan** trước khi code.
 
-### Prompt cho Cursor
+### Số phase / đầu mục — không cố định
+Danh sách 1–7 bên dưới chỉ là **ví dụ greenfield**. Mỗi lần update tính năng khác nhau → số phase và nội dung checklist **do scope lần đó quyết định** (có thể 1 phase hoặc nhiều phase). **Cấm** bắt buộc copy đúng 7 mục ví dụ vào mọi wave.
+
+### Prompt cho Cursor (mẫu — đổi nội dung phase theo scope)
 
 ```txt
-Review specs/implementation-plan.md.
+Review specs/implementation-plan.md for THIS change only
+(scope = current product-spec in/out + approved design).
 
-Rewrite it into small phases:
-1. Project setup
-2. Core UI
-3. Core backend or data logic
-4. Connect UI to data
-5. Validation and error states
-6. Local run instructions
-7. ngrok demo setup
+Rewrite into small phases that fit THIS scope (not a fixed template).
+Each phase: clear [ ] checklist, files/touches, how to test, depends/parallel if needed.
 
-Each phase should have clear checklist items.
-Do not write code yet.
+Then self-review the plan (do not write code yet):
+- Phases cover only in-scope work; out-of-scope explicit
+- Each [ ] is one verifiable slice (not a mega-task)
+- Acceptance / test hints present; no unexplained architecture change
+- Order and dependencies make sense
+Rewrite until the plan is clear and MVP-focused.
+Record plan_self_review: pass in the planner report.
 ```
 
+### Ví dụ phase (greenfield only — không bắt buộc)
+
+1. Project setup  
+2. Core UI  
+3. Core backend or data logic  
+4. Connect UI to data  
+5. Validation and error states  
+6. Local run instructions  
+7. ngrok demo setup  
+
 ### Kết quả kỳ vọng
-Cursor tạo một checklist có thể triển khai từng task một.
+Checklist triển khai từng task một, **đã qua tự review plan**, khớp đúng wave/tính năng đang làm.
 
 ---
 

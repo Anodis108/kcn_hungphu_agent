@@ -1,0 +1,17 @@
+# config/models.yaml — LLM models & multi-provider fallback configuration
+# SECRETS POLICY: Không đặt chuỗi key/secret trực tiếp vào file này.
+# Chỉ tham chiếu tên biến môi trường (ví dụ api_key_env, base_url_env).
+
+primary:
+  provider: openai
+  model: gpt-4o-mini
+  base_url_env: LLM_BASE_URL
+  api_key_env: OPENAI_API_KEYS
+  timeout: 15.0
+
+fallbacks:
+  - provider: self_hosted
+    model: Qwen/Qwen2.5-7B-Instruct
+    base_url_env: MODEL_BASE_URL
+    api_key_env: MODEL_API_KEY
+    timeout: 15.0

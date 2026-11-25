@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+import warnings
 from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_env_bool(value: object) -> object:
@@ -123,6 +127,9 @@ class Settings(BaseSettings):
     cors_allow_origins: str = Field(default="*", alias="CORS_ALLOW_ORIGINS")
 
 
+    # ── Graph recursion limit & execution ───────────────────────────────────
+    graph_recursion_limit: int = Field(default=25, alias="GRAPH_RECURSION_LIMIT")
+
     # ── Cache / TTL response cache (trước graph) ─────────────────────────────
     cache_enabled: bool = Field(default=True, alias="CACHE_ENABLED")
     cache_max_entries: int = Field(default=500, alias="CACHE_MAX_ENTRIES")
@@ -132,6 +139,13 @@ class Settings(BaseSettings):
     # Rewrite + decompose (gom trong rewrite_node — bỏ LLM khi câu ngắn/đơn)
     agent_decompose_min_chars: int = Field(default=48, alias="AGENT_DECOMPOSE_MIN_CHARS")
     agent_max_sub_questions: int = Field(default=4, alias="AGENT_MAX_SUB_QUESTIONS")
+
+    # Observability sampling (Phase 20.5) — float 0.0 to 1.0
+    trace_sample_rate: float = Field(default=1.0, alias="TRACE_SAMPLE_RATE")
+
+    # Circuit Breaker (Phase 20.4)
+    breaker_fail_threshold: int = Field(default=5, alias="BREAKER_FAIL_THRESHOLD")
+    breaker_reset_seconds: float = Field(default=30.0, alias="BREAKER_RESET_SECONDS")
 
     @field_validator(
         "memory_enabled",
@@ -146,6 +160,23 @@ class Settings(BaseSettings):
     @classmethod
     def _coerce_bool_fields(cls, value: object) -> object:
         return _parse_env_bool(value)
+
+    @field_validator("trace_sample_rate", mode="before")
+    @classmethod
+    def _validate_trace_sample_rate(cls, value: object) -> float:
+        if value is None or value == "":
+            return 1.0
+        try:
+            val = float(value)
+            if 0.0 <= val <= 1.0:
+                return val
+            warnings.warn(f"TRACE_SAMPLE_RATE {val} out of range [0.0, 1.0], fallback to 1.0", UserWarning)
+            logger.warning("TRACE_SAMPLE_RATE %s out of range [0.0, 1.0], fallback to 1.0", val)
+            return 1.0
+        except (ValueError, TypeError):
+            warnings.warn(f"Invalid TRACE_SAMPLE_RATE '{value}', fallback to 1.0", UserWarning)
+            logger.warning("Invalid TRACE_SAMPLE_RATE '%s', fallback to 1.0", value)
+            return 1.0
 
     @property
     def short_term_memory_enabled(self) -> bool:
