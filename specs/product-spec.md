@@ -98,12 +98,34 @@ Xây dựng và chuẩn hóa hệ thống **Memory & Context Engineering** tinh 
 
 ---
 
-## 5. Features out of Scope
+## 5. Non-goals (Features out of Scope)
 
-- **Không dùng Vector Database rời**: Không kéo thêm Qdrant Cloud, Milvus, Pinecone hay Chroma. Tận dụng tối đa PostgreSQL native và token/keyword overlap đơn giản, hiệu quả.
-- **Không làm GUI quản trị Memory**: Không dựng trang web riêng để xem/sửa memory; dữ liệu được quản lý tự động qua API và bảng PostgreSQL.
-- **Không áp dụng thuật toán nén phức tạp ngoài MVP**: Giữ cơ chế Sliding Window + Summarization đơn giản, không nhúng các thư viện tóm tắt phân cấp cồng kềnh.
-- **Không yêu cầu Embeddings bên ngoài**: Mọi hàm trích xuất và tìm kiếm hoạt động tốt cả khi offline hoặc không có API key OpenAI.
+> Cập nhật v19 (G0, 2026-11-23): khớp runtime thật. Trước đây ghi "không kéo Qdrant" — **sai so với code** (`src/infra/memory/qdrant_longterm.py`). Nay làm rõ.
+
+- **Không thêm vector DB cloud/managed mới** (Qdrant Cloud, Milvus, Pinecone, Chroma). Qdrant **self-hosted** cho long-term memory đã có trong runtime và được phép; Postgres `user_memories` vẫn là nguồn bền vững + fallback in-memory.
+- **Không yêu cầu Embeddings bên ngoài để chạy**: hệ thống vẫn chạy được offline / không có API key (keyword overlap fallback).
+- **Không làm GUI quản trị Memory**.
+- **Không áp dụng thuật toán nén phức tạp ngoài MVP** (chỉ Sliding Window + Summarization).
+- **Ngoài phạm vi wave v19** (quyết định grill): FastMCP; HITL (`interrupt_before`); Docker code-sandbox; canary/beta rollout; ~~multi-stage Dockerfile~~ (đưa vào v20); thay SSE bằng gRPC (gRPC chỉ chạy **cạnh** SSE); hard-limit $/user lúc runtime (chỉ ghi ngân sách bên dưới); đổi topology graph / sơ đồ hệ thống.
+
+- **Wave v20 (G13 · G15 · G16) — in-scope:** multi-stage `Dockerfile` (builder + slim runtime, non-root, HEALTHCHECK `/ready`, COPY `src/`); CI GitHub Actions chạy `pytest`; 4 incident playbooks markdown; circuit breaker mỏng quanh LLM/SQL; trace sampling qua env; bản đồ dashboard 7 widget **dạng tài liệu** (trỏ Langfuse + endpoint sẵn có).
+- **Ngoài phạm vi v20:** ~~CD~~ (đưa vào v21 dạng local-first) / secrets cloud (G14); hard-limit $; canary; FastMCP; HITL; vector RAG (G3); guardrails sâu (G9); React ops console mới; `/api/ops/summary`; ~~ruff~~ (v21 thêm tối thiểu).
+- **Wave v21 (CI/CD parity với `llm-engineer-demo`, local-first) — in-scope:** CI 2 tầng (`checks` rẻ: prompt lint + ruff `F` → `tests` hermetic) + `concurrency`; `eval-gate.yml` (PR path-filter, `run.py --offline --gate` chặn merge; nightly thật chỉ khi có secret, không chặn); `deploy/` (`release.sh` deploy/rollback/status/smoke theo tag=SHA trên máy local + `smoke.py` + README); `cd.yml` (`workflow_run` sau CI xanh → build image tag=SHA → chạy container trên runner → smoke → rollback/fail); `deploy.yml` skeleton SSH gated `ENABLE_SSH_DEPLOY=false`; cloud push gated `ENABLE_REGISTRY_PUSH=false`.
+- **Ngoài phạm vi v21:** deploy cloud thật (GCP/WIF/VM/nginx/TLS), Secret Manager, yêu cầu secret cloud để CI xanh; systemd unit; canary; sửa logic test để gỡ `--ignore` hiện có; ruff rule ngoài `F`.
+
+### 5.1 Ngân sách & metric (G0 — mục tiêu, chưa enforce runtime)
+
+| Metric | Mục tiêu | Cảnh báo 50% / 80% / 100% | Nguồn đo |
+|---|---|---|---|
+| Chi phí LLM / ngày (toàn hệ thống) | ≤ $5 | $2.5 / $4 / $5 → log warning (chưa chặn) | Langfuse cost |
+| Token / lượt (p95) | ≤ 8k input + 1.5k output | 4.7k / 7.6k / 9.5k tổng | Langfuse usage |
+| Latency end-to-end (p95, SSE first token) | ≤ 3s first token, ≤ 15s hoàn tất | — | Langfuse trace |
+| Supervisor hops / lượt | ≤ 6 (`recursion_limit` 19.3) | 3 / 5 / 6 | metric hop (19.3) |
+| Eval Gate (golden `agent_stat`) | pass-rate ≥ baseline − 2pp | — | `resource/eval/run.py` (19.6) |
+
+### 5.2 Golden slices (`difficulty`)
+
+`resource/eval/datasets/agent_stat/v1.yaml` (30 case) và `v2.yaml` (33 case) **đã có** `slice.difficulty` (easy/medium/…) cùng `type`, `multihop`, `out_of_scope`. Eval Gate (19.6) báo kết quả theo slice này; không cần thêm field.
 
 ---
 
@@ -122,4 +144,7 @@ Xây dựng và chuẩn hóa hệ thống **Memory & Context Engineering** tinh 
 - **AC-9 (Nested Langfuse substeps — v13)**: Mọi node graph có span ngoài (`_wrap_node`) và span con `trace_step` cho từng khối logic trong node theo archive/nested-trace-v13-design.md. Nhánh SQL batch có substeps per query. Không đổi hành vi trả lời; `tests/test_product_observability_errors.py` pass AC-T1–T3.
 - **AC-10 (ai_backend layout — v14)**: Cây `src/` theo v14-ai-backend-layout-design.md: `domain/agents/vms` + `multi_agent`, `application/`, `shared/settings`; HTTP + tên node LangGraph không đổi; `specs/` chỉ còn 4 file core SDD; `pytest -q` xanh (hoặc fail pre-existing đã ghi change-log).
 - **AC-11 (leaf agents + flat graph — v15)**: Theo v15-leaf-agents-flat-graph-design.md: `sql_agent` / `docs_agent` (không `compile` subgraph) + `vms/graph.py` gộp máy chạy; không `chart_agent` / `vms/core`; tên node + HTTP/SSE không đổi; pytest subset AC trong design xanh.
+- **AC-15 (v21 CI/CD local-first)**: CI có job `checks` → `tests` (needs); eval-gate offline chạy trên PR đụng prompt/agents/eval và fail khi dưới baseline; `deploy/release.sh deploy <sha>` + `smoke` + `rollback` chạy được local với Docker; `cd.yml` xanh trên runner **không** cần secret cloud; workflow cloud mặc định skip.
+- **AC-14 (v20 ops wave)**: Image build multi-stage chạy được (`/ready` 200 trong container); CI xanh trên PR; 4 playbook có checklist hành động; breaker mở sau N lỗi liên tiếp và tự half-open; `TRACE_SAMPLE_RATE` có hiệu lực; `pytest -q` xanh.
+- **AC-13 (v19 gap wave)**: Mỗi task 19.x đạt tiêu chí "Test" trong `implementation-plan.md` § v19; SSE web + topology graph không đổi; `pytest -q` xanh.
 - **AC-12 (IAM RBAC + geo scope — v18)**: Theo v18-rbac-iam-design.md: Bearer → IAM `/auth/me`; org ngoài allowed → 403; `dashboard_role_group` lọc domain/table/docs; SQL inject org (+ site/area/zone/device khi có cột); `IAM_REQUIRED=false` bypass BOARD_DIRECTOR; `agents/knowledge/` + corpus `agents/knowledge/retrieval/`.

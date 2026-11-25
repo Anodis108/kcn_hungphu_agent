@@ -517,7 +517,7 @@ html, body {
 }
 
 /* ==========================================================================
-   Workspace: chat ~50% | graph ~50% (Phase 2)
+   Workspace: chat full width
    ========================================================================== */
 .workspace {
   flex: 1;
@@ -531,8 +531,8 @@ html, body {
    Chat Main Viewport
    ========================================================================== */
 .chat-main {
-  flex: 1 1 50%;
-  width: 50%;
+  flex: 1 1 100%;
+  width: 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -540,190 +540,6 @@ html, body {
   position: relative;
   overflow: hidden;
   background: var(--bg-main);
-  border-right: 1px solid var(--border-light);
-}
-
-.graph-panel {
-  flex: 1 1 50%;
-  width: 50%;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: var(--bg-sidebar);
-  border-left: 1px solid var(--border-subtle);
-}
-
-.graph-panel-header {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.85rem 1rem;
-  border-bottom: 1px solid var(--border-light);
-}
-
-.graph-panel-header h2 {
-  font-size: 0.95rem;
-  font-weight: 700;
-}
-
-.graph-panel-hint {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
-.graph-canvas {
-  flex: 1;
-  overflow: auto;
-  padding: 1rem;
-  position: relative;
-}
-
-.graph-placeholder {
-  color: var(--text-muted);
-  font-size: 0.9rem;
-  text-align: center;
-  margin-top: 2rem;
-}
-
-.graph-placeholder.hidden {
-  display: none;
-}
-
-.graph-nodes {
-  display: flex;
-  flex-direction: column;
-  gap: 0.65rem;
-  align-items: stretch;
-}
-
-.graph-node {
-  border: 1px solid var(--border-light);
-  background: var(--bg-surface);
-  border-radius: var(--radius-md);
-  padding: 0.65rem 0.85rem;
-  cursor: default;
-  box-shadow: var(--shadow-sm);
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-
-.graph-node.running {
-  border-color: var(--accent-amber);
-  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15);
-}
-
-.graph-node.done {
-  cursor: pointer;
-  border-color: #10b981;
-}
-
-.graph-node.done:hover,
-.graph-node.selected {
-  border-color: var(--accent-warm);
-  box-shadow: var(--shadow-md);
-}
-
-.graph-node.pinned {
-  border-color: var(--accent-warm) !important;
-  box-shadow: 0 0 0 2px rgba(194, 65, 12, 0.28), var(--shadow-md) !important;
-  background: rgba(194, 65, 12, 0.05);
-}
-
-.graph-node-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.graph-node-id {
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.graph-node-time {
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: #059669;
-  background: rgba(16, 185, 129, 0.12);
-  padding: 0.1rem 0.4rem;
-  border-radius: 4px;
-}
-
-.graph-node-time.running {
-  color: #d97706;
-  background: rgba(217, 119, 6, 0.12);
-}
-
-.graph-panel-total {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--accent-warm);
-  background: rgba(194, 65, 12, 0.08);
-  padding: 0.2rem 0.5rem;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-}
-
-.graph-node-status {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-top: 0.2rem;
-}
-
-.graph-io {
-  border-top: 1px solid var(--border-light);
-  padding: 0.75rem 1rem 1rem;
-  max-height: 40%;
-  overflow: auto;
-  background: var(--bg-surface);
-
-}
-
-.graph-io-title {
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
-  margin-bottom: 0.5rem;
-}
-
-.graph-io-empty {
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-}
-
-.graph-io-body {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  white-space: pre-wrap;
-  word-break: break-word;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-sm);
-  padding: 0.65rem;
-  margin: 0;
-}
-
-@media (max-width: 900px) {
-  .workspace {
-    flex-direction: column;
-  }
-  .chat-main,
-  .graph-panel {
-    width: 100%;
-    flex: 1 1 50%;
-    height: 50vh;
-  }
-  .chat-main {
-    border-right: none;
-    border-bottom: 1px solid var(--border-light);
-  }
 }
 
 @media (max-width: 640px) {
@@ -1908,4 +1724,54 @@ html, body {
   border-color: rgba(31, 92, 79, 0.5);
   transform: translateY(-1px);
 }
+
+/* ==========================================================================
+   UI Navigation Deep-link Button (Phase 19.8)
+   ========================================================================== */
+.ui-navigate-container {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.btn-ui-navigate {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-color, #e2e8f0);
+  border-radius: var(--radius-md, 8px);
+  color: var(--primary-color, #2563eb);
+  font-size: 0.825rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: all 0.15s ease-in-out;
+}
+
+.btn-ui-navigate:hover {
+  background: var(--bg-surface-hover, #f8fafc);
+  border-color: var(--primary-color, #2563eb);
+  box-shadow: 0 2px 4px rgba(37, 99, 235, 0.15);
+  transform: translateY(-1px);
+}
+
+.btn-ui-navigate-path {
+  color: var(--text-muted, #64748b);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.btn-ui-navigate-arrow {
+  font-size: 0.85rem;
+  transition: transform 0.15s ease;
+}
+
+.btn-ui-navigate:hover .btn-ui-navigate-arrow {
+  transform: translate(2px, -2px);
+}
+
 

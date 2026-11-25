@@ -16,7 +16,7 @@ Hướng dẫn thực thi chuẩn cho AI agent trong `agent-harness/dong` theo p
 
 ## Quy tắc thực thi (Rules)
 
-1. **Always read the specs before coding**: Luôn đọc kỹ `specs/product-spec.md` và `specs/implementation-plan.md` trước khi viết bất kỳ dòng code nào.
+1. **Always read the specs before coding**: Luôn đọc kỹ `specs/product-spec.md` và `specs/implementation-plan.md` trước khi viết bất kỳ dòng code nào. Wave mới: Planner phải `plan_self_review: pass` (§6d) — số phase theo scope, không copy cứng ví dụ guide.
 2. **Implement only one phase or task at a time**: Chỉ thực hiện duy nhất 1 phase hoặc 1 task (`[ ]`) tại một thời điểm. Không nhảy cóc, không gộp nhiều task.
 3. **Keep the app simple**: Giữ mã nguồn đơn giản, rõ ràng, tập trung vào phạm vi MVP, không làm phức tạp hóa vấn đề (over-engineering).
 4. **Do not add unnecessary libraries**: Tận dụng tối đa thư viện và công cụ sẵn có trong dự án, không tự ý cài đặt thêm dependency nếu không bắt buộc.
@@ -26,6 +26,8 @@ Hướng dẫn thực thi chuẩn cho AI agent trong `agent-harness/dong` theo p
 8. **SDD feature loop (bắt buộc — guide VN)**: Mỗi feature/task phải qua cổng review trước khi sang task tiếp theo. Xem mục dưới.
 9. **Orca Coordinator auto-wake**: Khi điều phối multi-agent, sau mỗi `worker-start` phải chạy `orca-coord-watch` (§15e trong `orca_setup/ORCA-AGENT-SETUP.md`). Khi có `[ORCA auto-wake]` / report mới: đọc + phản hồi user ngay — không chờ nhắc.
 10. **Gap tracker G0–G17**: Khi xử lý xong (Approved) một hạng mục gắn giai đoạn G\*, **bắt buộc** cập nhật hàng tương ứng trong [`specs/gap-analysis-quy-trinh-product-agent.md`](specs/gap-analysis-quy-trinh-product-agent.md) theo §0 Protocol của file đó (trạng thái / đã có / còn thiếu + §5 lịch sử).
+11. **Đúng role + đến hết mission**: Coordinator chỉ điều phối (§15b); sau mỗi worker xong phải dispatch bước tiếp đến hết checklist (§15f). Approve design → Planner viết plan — Coordinator không tự viết `implementation-plan` / không code thay Implementer.
+12. **Lane song song (§15g)**: nhân bản Implementer (`04a`/`04b`) chỉ khi phase có `parallel_ok` + `touches` không giao + `depends` đã Approved; mỗi lane vẫn Review→Approved riêng.
 
 ---
 
@@ -65,7 +67,7 @@ cd agent-harness/dong
 PYTHONPATH=. pytest -q
 
 # 2. Chạy riêng bộ kiểm thử memory & context
-PYTHONPATH=. pytest tests/test_product_memory_context.py tests/test_product_memory_cache.py tests/test_product_memory_postgres.py -v
+PYTHONPATH=. pytest tests/hermetic/test_memory.py tests/integration_db/test_memory_db.py tests/integration_db/test_ttl_cache_db.py -v
 
 # 3. Khởi động backend local
 uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload

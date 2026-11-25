@@ -1,0 +1,8 @@
+dataset: agent_stat
+version: draft-20261123
+created: '2026-11-23'
+review: pending
+source: thumbs_down_feedback
+total_cases: 0
+audit_checklist: resource/eval/AUDIT-CHECKLIST.md
+cases: []

@@ -92,6 +92,9 @@ def base_llm(
     temperature_override: float | None = None,
     max_tokens_override: int | None = None,
     params: GenerationParams | None = None,
+    base_url_override: str | None = None,
+    api_key_override: str | None = None,
+    request_timeout_override: float | None = None,
 ) -> ChatOpenAI:
     """LangChain ChatOpenAI — cùng backend/settings với `get_client()`."""
     name = (backend_override or settings.llm_backend).strip().lower()
@@ -110,14 +113,16 @@ def base_llm(
         kw["temperature"] = temperature_override
     if mt is not None:
         kw["max_tokens"] = mt
+    api_key = api_key_override or _api_key_for_backend(name)
+    req_timeout = request_timeout_override if request_timeout_override is not None else settings.llm_request_timeout_s
     out: dict = {
         "model": model,
-        "api_key": _api_key_for_backend(name),
+        "api_key": api_key,
         "max_retries": settings.llm_max_retries,
-        "request_timeout": settings.llm_request_timeout_s,
+        "request_timeout": req_timeout,
         **kw,
     }
-    base_url = _resolve_base_url(backend.default_base_url, name)
+    base_url = base_url_override or _resolve_base_url(backend.default_base_url, name)
     if base_url:
         out["base_url"] = base_url
     return SafeChatOpenAI(**out)

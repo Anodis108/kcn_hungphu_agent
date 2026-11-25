@@ -19,6 +19,7 @@
 - File test theo convention repo
 - Map acceptance → test cases trong report ngắn
 - Cập nhật `specs/change-log.md` nếu thêm/sửa test đáng kể
+- Prepend `specs/task-delta.md` nếu tạo/sửa file test (**Task** nói rõ test này cover gì + links **chỉ** file test + `#L…`)
 
 ## Done when
 - Tests phản ánh acceptance của **task đang làm**; chạy được (hoặc RED đúng lý do nếu code chưa có).
@@ -32,7 +33,8 @@ You are Test writer (Cursor). Write tests for the current task's
 acceptance in specs/product-spec.md (and specs/test-plan.md).
 Prefer behavior tests. Do not implement product features.
 Report which acceptance items each test covers. Update
-specs/change-log.md if needed. next_hint: wait for Reviewer-5a
+specs/change-log.md and prepend specs/task-delta.md (test paths + #L line links)
+if needed. next_hint: wait for Reviewer-5a
 (or Fix-only if already in a review loop).
 ```
 

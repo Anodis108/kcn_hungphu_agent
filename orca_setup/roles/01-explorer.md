@@ -9,6 +9,7 @@
 | **Token** | Nặng (heavy) |
 | **Worktree** | `current` (repo đang mở) |
 | **Model** | Gemini Flash High (Antigravity default / user setting) |
+| **Skills** | Đọc repo; tùy chọn `ponytail` khi tóm tắt. Không grill / không plan. |
 
 ## Input
 - Repo checkout hiện tại (toàn bộ cây mã nguồn + docs hiện có).

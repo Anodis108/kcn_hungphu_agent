@@ -9,6 +9,9 @@ from src.domain.agents.state import AgentState
 from src.infra.llm.schemas import OrchestratorPlan, OrchestratorStep
 from src.domain.observability.tracing import current_span, trace_step
 
+SUPERVISOR_MAX_HOPS: int = 6
+
+
 def _is_multi_plan(plan: OrchestratorPlan | None) -> bool:
     return bool(plan and (plan.is_multi or len(plan.steps) >= 2))
 
@@ -51,17 +54,19 @@ def orchestrator_node(state: AgentState) -> dict:
     intent = state['intent'] if 'intent' in state else 'query_data'
     llm_used = not use_offline_tools()
     access = state['access_context'] if 'access_context' in state else None
+    current_iter = int(state.get('iteration_count') or 0) + 1
+
     allowed, forbidden = question_domains_allowed(q_text, access)
     if not allowed:
         plan = OrchestratorPlan(steps=[], is_multi=False, reason=f'domain_denied:{",".join(sorted(forbidden))}')
-        return {'orchestrator_plan': plan, 'answer': DENY_REPLY, 'respond_mode': 'out_of_scope', 'intent': 'out_of_scope', 'events': [node_event('orchestrator', input={'question': q_text, 'intent': intent}, output={'denied_domains': sorted(forbidden), 'answer': DENY_REPLY}, meta={'user_id': user_id, 'session_id': session_id, 'domain_denied': True})]}
+        return {'orchestrator_plan': plan, 'iteration_count': current_iter, 'answer': DENY_REPLY, 'respond_mode': 'out_of_scope', 'intent': 'out_of_scope', 'events': [node_event('orchestrator', input={'question': q_text, 'intent': intent}, output={'denied_domains': sorted(forbidden), 'answer': DENY_REPLY}, meta={'user_id': user_id, 'session_id': session_id, 'domain_denied': True, 'iteration_count': current_iter})]}
     plan_existing: OrchestratorPlan | None = state['orchestrator_plan'] if 'orchestrator_plan' in state else None
     if (state['orchestrator_multi_active'] if 'orchestrator_multi_active' in state else None) and plan_existing and plan_existing.steps:
         idx = int((state['orchestrator_step_index'] if 'orchestrator_step_index' in state else None) or 0)
         with trace_step(current_span(), 'dispatch_batch', input={'from_index': idx}, as_type='tool') as sub:
             subs, end_idx, agent = _batch_steps_from_plan(plan_existing, idx)
             sub['output'] = {'agent': agent, 'batch_size': len(subs), 'batch_end_index': end_idx}
-        out = {**_reset_pipeline_fields(), 'orchestrator_batch_sub_questions': subs, 'orchestrator_batch_end_index': end_idx, 'events': [node_event('orchestrator', input={'question': q_text, 'dispatch_from': idx, 'batch_sub_questions': subs}, output={'agent': agent, 'batch_size': len(subs), 'batch_end_index': end_idx}, meta={'user_id': user_id, 'session_id': session_id, 'is_multi': True})]}
+        out = {**_reset_pipeline_fields(), 'iteration_count': current_iter, 'orchestrator_batch_sub_questions': subs, 'orchestrator_batch_end_index': end_idx, 'events': [node_event('orchestrator', input={'question': q_text, 'dispatch_from': idx, 'batch_sub_questions': subs}, output={'agent': agent, 'batch_size': len(subs), 'batch_end_index': end_idx}, meta={'user_id': user_id, 'session_id': session_id, 'is_multi': True, 'iteration_count': current_iter})]}
         if subs:
             out['question'] = subs[0]
         return out
@@ -94,7 +99,7 @@ def orchestrator_node(state: AgentState) -> dict:
         with trace_step(current_span(), 'plan_orchestration', input={'intent': intent}, as_type='tool') as sub:
             plan = plan_orchestration(q_text, sub_questions=sub_questions, original=original_q, intent=intent)
             sub['output'] = {'step_count': len(plan.steps), 'is_multi': plan.is_multi}
-    out: dict = {'orchestrator_plan': plan, 'events': [node_event('orchestrator', input={'question': q_text, 'intent': intent, 'sub_questions': sub_questions}, output={'orchestrator_plan': plan.model_dump()}, meta={'llm_used': llm_used, 'user_id': user_id, 'session_id': session_id})]}
+    out: dict = {'orchestrator_plan': plan, 'iteration_count': current_iter, 'events': [node_event('orchestrator', input={'question': q_text, 'intent': intent, 'sub_questions': sub_questions}, output={'orchestrator_plan': plan.model_dump()}, meta={'llm_used': llm_used, 'user_id': user_id, 'session_id': session_id, 'iteration_count': current_iter})]}
     if _is_multi_plan(plan):
         out.update({'orchestrator_multi_active': True, 'orchestrator_step_index': 0, 'orchestrator_step_results': [], 'multi_hop_ready': False, **_reset_pipeline_fields()})
         _apply_orchestrator_batch(out, plan, 0)
@@ -102,6 +107,14 @@ def orchestrator_node(state: AgentState) -> dict:
     return out
 
 def route_orchestrator(state: AgentState) -> str:
+    iteration_count = int(state.get('iteration_count') or 0)
+    if iteration_count > SUPERVISOR_MAX_HOPS:
+        logger.warning(
+            "Supervisor hop limit exceeded: %s > %s hops. Routing to respond.",
+            iteration_count,
+            SUPERVISOR_MAX_HOPS,
+        )
+        return 'respond'
     intent = state['intent'] if 'intent' in state else 'query_data'
     rewritten = state['rewritten'] if 'rewritten' in state else None
     q_text = rewritten.text if rewritten else state['question'] if 'question' in state else ''

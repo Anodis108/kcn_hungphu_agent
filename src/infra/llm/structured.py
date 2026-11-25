@@ -29,12 +29,45 @@ def invoke_structured(
     step_name = substep or schema.__name__
 
     def _call() -> T:
-        llm = base_llm(model_override=model_override, backend_override=backend_override, params=gen)
-        structured = llm.with_structured_output(schema)
-        result = structured.invoke(messages)
-        if isinstance(result, schema):
-            return result
-        return schema.model_validate(result)
+        from src.shared.models_config import get_model_targets
+        import logging
+
+        log = logging.getLogger(__name__)
+        targets = get_model_targets()
+        last_err: Exception | None = None
+
+        for idx, target in enumerate(targets):
+            provider = backend_override or target.provider
+            model = model_override or target.model
+            try:
+                llm = base_llm(
+                    model_override=model,
+                    backend_override=provider,
+                    params=gen,
+                    base_url_override=target.base_url,
+                    api_key_override=target.api_key,
+                    request_timeout_override=target.timeout,
+                )
+                structured = llm.with_structured_output(schema)
+                result = structured.invoke(messages)
+                if isinstance(result, schema):
+                    return result
+                return schema.model_validate(result)
+            except ValidationError:
+                raise
+            except Exception as e:
+                last_err = e
+                if idx + 1 < len(targets):
+                    next_target = targets[idx + 1]
+                    log.warning(
+                        "llm_fallback_used: primary=%s failed with %s; trying fallback=%s",
+                        model,
+                        e,
+                        next_target.model,
+                    )
+                else:
+                    log.error("All LLM model targets failed in invoke_structured. Last error: %s", e)
+        raise RuntimeError(f"Lỗi kết nối tới LLM ({schema.__name__}): {last_err}") from last_err
 
     from src.domain.observability.redaction import redact_text
 

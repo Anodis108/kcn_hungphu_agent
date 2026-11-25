@@ -1,4 +1,4 @@
-# Demo / production dong (frontend + backend). Langfuse riêng: langfuse/docker-compose.yml
+# App + agent infra (postgres/qdrant). Langfuse: docker-compose.observability.yml (project riêng, cùng kcn_hungphu_network).
 
 name: kcn-hungphu-agent
 
@@ -91,8 +91,8 @@ services:
       AGENT_MAX_SUB_QUESTIONS: ${AGENT_MAX_SUB_QUESTIONS:-4}
       LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
       LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
-      # Langfuse stack riêng (langfuse/) — không dùng LANGFUSE_HOST từ .env (localhost)
-      LANGFUSE_HOST: http://host.docker.internal:3001
+      # Cùng kcn_hungphu_network với docker-compose.observability.yml (không dùng localhost từ .env)
+      LANGFUSE_HOST: http://langfuse-web:3000
       DB_TIMEZONE: ${DB_TIMEZONE:-Asia/Ho_Chi_Minh}
       AGENT_DB_HOST: agent_postgres
       AGENT_DB_PORT: "5432"

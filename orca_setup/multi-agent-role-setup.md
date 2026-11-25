@@ -192,11 +192,13 @@ orca-roles-run --brief "..." --dry-run
 
 Coordinator:
 
-1. **Ngay sau `worker-start`:** `orca-coord-watch --run <runId> --terminal <coordTerm> --workdir <project>` (§15e). Cursor pane thường không auto-wake — đừng chỉ “end turn và hy vọng”.
-2. Khi nhận `[ORCA auto-wake]`: `orca-coord-drain` → đọc report → tóm tắt user → dispatch tiếp. Không chờ user nhắc.
-3. Sau role **2** và **5b**: chạy `orca-claude-after-task --run <runId>`.
-4. State file: `.orca-roles-run-state.json` trong workdir.  
-   *(Lưu ý: `orca-coord-watch` peek inbox — không thay `orchestration check` của agent; không dùng script poll thay skill orchestration của worker.)*
+1. **Giao đúng agent đúng việc** (§15b): Approve design → Planner viết plan; không tự viết `implementation-plan` / không code thay Implementer.
+2. **Ngay sau `worker-start`:** `orca-coord-watch --run <runId> --terminal <coordTerm> --workdir <project>` (§15e).
+3. Khi nhận `[ORCA auto-wake]`: `orca-coord-drain` → đọc report → tóm tắt user → **dispatch tiếp đến hết mission** (§15f). Không chờ user nhắc. Wake trùng → không dispatch lại.
+4. **§15g:** nếu plan có ≥2 task `parallel_ok` + `depends` xong + `touches` disjoint → được `worker-start` nhiều Implementer (04a/04b); mỗi lane vẫn Review riêng. Overlap touches → tuần tự.
+4. Sau role **2** và **5b**: chạy `orca-claude-after-task --run <runId>`.
+5. State file: `.orca-roles-run-state.json` trong workdir.  
+   *(Lưu ý: `orca-coord-watch` peek inbox — không thay `orchestration check` của agent.)*
 
 ---
 

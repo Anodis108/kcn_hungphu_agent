@@ -48,6 +48,7 @@ from src.domain.guardrails import (
 )
 
 DEFAULT_DATASET = Path(__file__).parent / "datasets" / "agent_stat" / "v2.yaml"
+DEFAULT_BASELINE_PATH = Path(__file__).parent / "results" / "baseline.json"
 GOLDEN_30_PATH = Path(__file__).parent / "results" / "golden-30.md"
 
 
@@ -88,6 +89,7 @@ class PipelineResult:
     tools: set[str] = field(default_factory=set)
     columns: list[str] = field(default_factory=list)
     evidence: str = ""
+    trajectory: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -101,6 +103,8 @@ class CaseEvalResult:
     judge: str = ""
     question: str = ""
     answer: str = ""
+    difficulty: str = "medium"
+    trajectory: list[str] = field(default_factory=list)
 
 
 def _access_context_for_case(case: dict):
@@ -132,17 +136,21 @@ def run_pipeline(question: str, *, case: dict | None = None) -> PipelineResult:
     thì case out_of_scope/injection trong dataset không bao giờ đúng kỳ vọng
     (check_input()/in_scope() mới là nơi sinh ra "prompt_injection_detected"/
     "ngoài phạm vi", run_agent() không biết gì về 2 khái niệm này)."""
+    trajectory: list[str] = ["guardrail_input"]
     try:
         check_input(question)
     except GuardrailViolation as exc:
-        return PipelineResult(answer=exc.reason)
+        trajectory.append("guardrail_input:violation")
+        return PipelineResult(answer=exc.reason, trajectory=trajectory)
 
     access = _access_context_for_case(case or {})
     # Case RBAC: luôn vào graph (để DENY_REPLY), không cắt sớm bằng in_scope product.
     if access is None and not in_scope(question):
-        return PipelineResult(answer=OUT_OF_SCOPE_REPLY)
+        trajectory.append("guardrail_input:out_of_scope")
+        return PipelineResult(answer=OUT_OF_SCOPE_REPLY, trajectory=trajectory)
 
     question = redact_pii(question)
+    trajectory.extend(["recall", "rewrite", "classify", "top_supervisor"])
     uid = (access.user_id if access else None) or "eval"
     # Unique thread_id mỗi case — tránh dính checkpoint cũ (msgpack unregistered / hang).
     out = run_agent(
@@ -170,14 +178,19 @@ def run_pipeline(question: str, *, case: dict | None = None) -> PipelineResult:
     tools = set()
     if out.detail:
         tools.add(out.detail)
+        trajectory.append(out.detail)
     if out.query and out.query.tool:
         tools.add(out.query.tool)
+        trajectory.append(out.query.tool)
+
+    trajectory.extend(["respond", "guardrail_output"])
 
     return PipelineResult(
         answer=result.answer,
         tools=tools,
         columns=query.columns if query else [],
         evidence=" | ".join(evidence_parts),
+        trajectory=trajectory,
     )
 
 
@@ -190,6 +203,19 @@ def check_case(case: dict, result: PipelineResult) -> list[str]:
     failures: list[str] = []
     text = _evidence_text(result)
     tools = result.tools
+
+    # Trajectory validation nếu case có khai báo
+    expected_route = case.get("expected_route")
+    if expected_route and isinstance(expected_route, list):
+        for node in expected_route:
+            if node not in result.trajectory:
+                failures.append(f"thiếu expected_route node: '{node}' (trajectory: {result.trajectory})")
+
+    expected_agents = case.get("expected_agents")
+    if expected_agents and isinstance(expected_agents, list):
+        for agent in expected_agents:
+            if agent not in tools and agent not in result.trajectory:
+                failures.append(f"thiếu expected_agent: '{agent}'")
 
     for needle in case.get("must_include", []):
         if needle.lower() not in text:
@@ -328,6 +354,9 @@ def run(
     output_path: Path | None = None,
     use_judge: bool = True,
     offline: bool = False,
+    gate: bool = False,
+    baseline_path: Path | None = None,
+    save_baseline: bool = False,
 ) -> int:
     if offline:
         _disable_live_eval()
@@ -340,12 +369,16 @@ def run(
 
     pass_count: Counter[str] = Counter()
     total_count: Counter[str] = Counter()
+    difficulty_pass_count: Counter[str] = Counter()
+    difficulty_total_count: Counter[str] = Counter()
     fail_details: list[tuple[str, str, list[str]]] = []
     golden_rows: list[CaseEvalResult] = []
 
     for case in cases:
         slice_type = case["slice"]["type"]
+        slice_difficulty = case["slice"].get("difficulty", "medium")
         total_count[slice_type] += 1
+        difficulty_total_count[slice_difficulty] += 1
         t0 = time.perf_counter()
         pipeline_result: PipelineResult | None = None
         try:
@@ -378,6 +411,8 @@ def run(
                 answer=pipeline_result.answer if pipeline_result else "",
                 note="; ".join(failures),
                 judge=judge_str,
+                difficulty=slice_difficulty,
+                trajectory=pipeline_result.trajectory if pipeline_result else [],
             )
         )
 
@@ -385,6 +420,7 @@ def run(
             fail_details.append((case["id"], case["question"], failures))
         else:
             pass_count[slice_type] += 1
+            difficulty_pass_count[slice_difficulty] += 1
 
     total_pass = sum(pass_count.values())
     report_path = write_golden_30(
@@ -397,12 +433,64 @@ def run(
     )
 
     print(f"Dataset: {data['dataset']} v{data['version']} — {len(cases)} case\n")
+    print("── Phân bổ theo Type:")
     for slice_type in sorted(total_count):
         p, t = pass_count[slice_type], total_count[slice_type]
-        print(f"  {slice_type:14s}: {p}/{t} pass")
+        print(f"  {slice_type:14s}: {p}/{t} pass ({round(p/t*100, 1) if t else 0}%)")
 
-    print(f"\nTổng: {total_pass}/{len(cases)} pass")
+    print("\n── Phân bổ theo Difficulty:")
+    for diff in sorted(difficulty_total_count):
+        p, t = difficulty_pass_count[diff], difficulty_total_count[diff]
+        print(f"  {diff:14s}: {p}/{t} pass ({round(p/t*100, 1) if t else 0}%)")
+
+    curr_pass_rate = round(total_pass / len(cases), 4) if cases else 0.0
+    print(f"\nTổng: {total_pass}/{len(cases)} pass ({round(curr_pass_rate * 100, 2)}%)")
     print(f"\nĐã ghi: {report_path}")
+
+    if save_baseline:
+        import json
+        b_path = baseline_path or DEFAULT_BASELINE_PATH
+        b_path.parent.mkdir(parents=True, exist_ok=True)
+        b_data = {
+            "dataset": data.get("dataset", "agent_stat"),
+            "version": str(data.get("version", "2")),
+            "total_cases": len(cases),
+            "total_pass": total_pass,
+            "pass_rate": curr_pass_rate,
+            "difficulty_breakdown": {
+                d: {"pass": difficulty_pass_count[d], "total": difficulty_total_count[d], "rate": round(difficulty_pass_count[d] / difficulty_total_count[d], 4) if difficulty_total_count[d] else 0.0}
+                for d in difficulty_total_count
+            },
+            "type_breakdown": {
+                t: {"pass": pass_count[t], "total": total_count[t], "rate": round(pass_count[t] / total_count[t], 4) if total_count[t] else 0.0}
+                for t in total_count
+            },
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        b_path.write_text(json.dumps(b_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        print(f"Đã lưu baseline vào: {b_path}")
+
+    gate_exit_code = 0
+    if gate:
+        import json
+        b_path = baseline_path or DEFAULT_BASELINE_PATH
+        if not b_path.is_file():
+            print(f"❌ [EVAL GATE FAILED]: Không tìm thấy baseline file tại '{b_path}'. Cần chỉ định baseline hợp lệ hoặc chạy với --save-baseline trước.")
+            gate_exit_code = 1
+        else:
+            try:
+                base_info = json.loads(b_path.read_text(encoding="utf-8"))
+                base_rate = float(base_info.get("pass_rate") or 0.0)
+                threshold = base_rate - 0.02  # baseline - 2pp
+                print(f"\n[EVAL GATE] Kiểm tra pass-rate: Hiện tại={round(curr_pass_rate*100, 2)}% vs Baseline={round(base_rate*100, 2)}% (Ngưỡng tối thiểu={round(threshold*100, 2)}%)")
+                if curr_pass_rate < threshold:
+                    print(f"❌ [EVAL GATE FAILED]: Pass rate {round(curr_pass_rate*100, 2)}% thấp hơn ngưỡng cho phép ({round(threshold*100, 2)}%)!")
+                    gate_exit_code = 1
+                else:
+                    print("✅ [EVAL GATE PASSED]: Pass rate đáp ứng tiêu chí baseline (-2pp)!")
+            except Exception as e:
+                print(f"[EVAL GATE] Lỗi khi đọc baseline: {e}")
+                gate_exit_code = 1
 
     if fail_details:
         print("\nChi tiết case FAIL:")
@@ -410,6 +498,9 @@ def run(
             print(f"  [{case_id}] {question}")
             for reason in failures:
                 print(f"      - {reason}")
+
+    if gate:
+        return gate_exit_code
 
     return 0 if not fail_details else 1
 
@@ -425,13 +516,39 @@ def main() -> None:
         action="store_true",
         help="Mock offline (pytest/CI) — KHÔNG dùng cho đánh giá product thật",
     )
+    parser.add_argument(
+        "--gate",
+        action="store_true",
+        help="Bật Eval Gate: trả về exit code 1 nếu pass rate < baseline - 2pp",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=Path,
+        default=DEFAULT_BASELINE_PATH,
+        help="Đường dẫn baseline JSON file",
+    )
+    parser.add_argument(
+        "--save-baseline",
+        action="store_true",
+        help="Lưu kết quả chạy hiện tại làm baseline mới",
+    )
     args = parser.parse_args()
     
     output_path = args.output
     if args.offline and output_path == GOLDEN_30_PATH:
         output_path = output_path.with_name("golden-30-offline.md")
         
-    sys.exit(run(args.dataset, output_path=output_path, use_judge=args.judge, offline=args.offline))
+    sys.exit(
+        run(
+            args.dataset,
+            output_path=output_path,
+            use_judge=args.judge,
+            offline=args.offline,
+            gate=args.gate,
+            baseline_path=args.baseline,
+            save_baseline=args.save_baseline,
+        )
+    )
 
 
 if __name__ == "__main__":

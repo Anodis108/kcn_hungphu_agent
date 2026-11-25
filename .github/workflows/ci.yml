@@ -1,0 +1,62 @@
+# G15 — CI 2 tầng: checks (prompt lint + ruff) → tests (Phase 21.1). No deploy.
+name: CI
+
+'on':
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Tầng 1: checks rẻ, chạy trước ───────────────────────────────────────────
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Prompt lint
+        env:
+          PYTHONPATH: "."
+        run: python -m src.infra.prompts.lint
+
+      - name: Ruff (rule F)
+        run: ruff check .
+
+  # ── Tầng 2: tests, chỉ chạy khi checks xanh ──────────────────────────────────
+  tests:
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Pytest (offline hermetic)
+        env:
+          PYTHONPATH: "."
+          DB_HOST: ""
+          IAM_REQUIRED: "false"
+          # No LLM keys — offline hermetic test suite
+          OPENAI_API_KEY: ""
+          ANTHROPIC_API_KEY: ""
+        run: pytest tests/hermetic -q

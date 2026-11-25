@@ -14,6 +14,11 @@ def short_user_error(message: str) -> str:
 
 def format_error_message(exc: Exception) -> str:
     err_str = str(exc).lower()
+    exc_type = type(exc).__name__
+    if exc_type == "GraphRecursionError" or "recursion limit" in err_str or "graphrecursionerror" in err_str:
+        return short_user_error(
+            "Yêu cầu quá phức tạp hoặc vượt quá giới hạn bước xử lý (recursion limit). Vui lòng chia nhỏ câu hỏi."
+        )
     if any(k in err_str for k in ("clickhouse", "ch timeout")):
         return short_user_error(
             "Lỗi cơ sở dữ liệu phân tích: không truy vấn được số liệu. Kiểm tra ClickHouse."

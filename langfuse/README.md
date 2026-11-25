@@ -1,60 +1,55 @@
 # Langfuse (self-hosted)
 
-Stack observability tách riêng khỏi `docker-compose.yml` gốc của dong.
+Stack observability — **project Compose riêng** (`kcn-hungphu-obs`), join cùng network app `kcn_hungphu_network`.  
+Nguồn sự thật: [`../docker-compose.observability.yml`](../docker-compose.observability.yml).  
+`docker compose down` file obs **không** tắt `agent_postgres` / `qdrant` / app.
 
-## Chạy
+## Chạy (từ repo root)
 
 ```bash
-cd agent-harness/dong/langfuse
-cp .env.example .env   # nếu chưa có
-docker compose up -d
+# 0) Agent infra (tạo kcn_hungphu_network nếu chưa có)
+docker compose up -d agent_postgres qdrant
+
+# 1) Langfuse + deps
+cp langfuse/.env.example langfuse/.env   # nếu chưa có
+docker compose -f docker-compose.observability.yml --env-file langfuse/.env up -d
+
+# Tương thích cũ:
+cd langfuse && docker compose --env-file .env up -d
 ```
 
-Container/volume đều có prefix `kcn_hungphu_langfuse_*` (vd. `kcn_hungphu_langfuse_web`, `kcn_hungphu_langfuse_redis`) — dễ nhận trong `docker ps`.
+Container/volume giữ prefix `kcn_hungphu_langfuse_*`. Web/worker gắn **hai** network: `kcn_hungphu_langfuse_network` (deps) + `kcn_hungphu_network` (app → `http://langfuse-web:3000`).
 
-**Web UI tùy biến:** `langfuse-web` build từ `Dockerfile.web` (base `langfuse:4`) — patch bundle Next.js để cột latency trên cây trace hiển thị **giây với 3 chữ số thập phân** (`formatIntervalSeconds` mặc định `scale=3`). Sau khi pull image Langfuse mới, chạy lại `docker compose build langfuse-web`.
+**Web UI tùy biến:** `langfuse-web` build từ `Dockerfile.web` — latency 3 chữ số thập phân. Sau pull image mới:
 
 ```bash
-docker compose build langfuse-web && docker compose up -d langfuse-web
+docker compose -f docker-compose.observability.yml --env-file langfuse/.env build langfuse-web
+docker compose -f docker-compose.observability.yml --env-file langfuse/.env up -d langfuse-web
 ```
 
-Sau khi rebuild patch, **xóa cache site** cho `http://localhost:3001` (DevTools → Application → Clear site data) hoặc tab ẩn danh — Next gắn `immutable` 1 năm trên `/_next/static/chunks/*`, cùng URL có thể vẫn là JS cũ nếu không clear.
+Clear cache browser cho `http://192.168.1.198:3001` nếu chunk Next cũ.
 
-Dừng:
-
-```bash
-docker compose down
-```
-
-Reset data (xóa volume):
+## Dừng / reset
 
 ```bash
-docker compose down -v
-docker compose up -d
+# Chỉ tắt obs (app + agent DB vẫn chạy)
+docker compose -f docker-compose.observability.yml --env-file langfuse/.env down
+
+# Reset data Langfuse
+docker compose -f docker-compose.observability.yml --env-file langfuse/.env down -v
+docker compose -f docker-compose.observability.yml --env-file langfuse/.env up -d
 ```
 
 ## Đăng nhập UI
 
-- URL: http://localhost:3001 (host; map `3001:3000` nếu cổng 3000 bận)
-- Email: `admin@agent-atin.local`
-- Mật khẩu: `Atin@123#`
+- URL: http://localhost:3001 (host map `3001:3000`)
+- Email: `admin@agent-atin.local` / `Atin@123#`
 - Project: **agent_ATIN**
+- Keys khớp `../.env`: `pk-lf-0c271516-…` / `sk-lf-cda213a6-…`
 
-API keys (khớp `../.env`):
+## Kết nối backend
 
-- `LANGFUSE_PUBLIC_KEY=pk-lf-0c271516-d371-4a03-9ea6-0a9c22f131c2`
-- `LANGFUSE_SECRET_KEY=sk-lf-cda213a6-b0a0-4e61-9df5-ca38c0d280c3`
-
-## Kết nối backend dong
-
-| Chạy backend | `LANGFUSE_HOST` | Ghi chú |
-|---|---|---|
-| Docker (`docker compose up`) | `http://host.docker.internal:3000` | Override trong `docker-compose.yml` gốc |
-| Local dev (`uvicorn`) | `http://localhost:3000` | Trong `.env` thư mục gốc `dong` |
-
-App dong (frontend + backend) chạy riêng từ thư mục gốc:
-
-```bash
-cd agent-harness/dong
-docker compose up --build -d
-```
+| Chạy backend | `LANGFUSE_HOST` |
+|---|---|
+| Compose / `release.sh` (`DOCKER_NETWORK=compose`) | `http://langfuse-web:3000` (override trong compose/release) |
+| Host uvicorn | `http://localhost:3001` trong `.env` |

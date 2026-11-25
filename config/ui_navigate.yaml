@@ -1,0 +1,16 @@
+# Cấu hình Whitelist URL cho tính năng Deep-link UI Navigation (Phase 19.8)
+# Chỉ các path nằm trong danh sách này mới được phép tạo liên kết điều hướng và nút "Mở trang".
+# Mọi path không nằm trong danh sách sẽ bị drop để đảm bảo an toàn.
+
+whitelist_paths:
+  - "/dashboard"
+  - "/dashboard/traffic"
+  - "/devices"
+  - "/monitoring"
+  - "/playback"
+  - "/map"
+  - "/events"
+  - "/security/alerts"
+  - "/security/intrusion"
+  - "/zones"
+  - "/reports"

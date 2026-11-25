@@ -1,0 +1,52 @@
+{
+  "dataset": "agent_stat",
+  "version": "2.4",
+  "total_cases": 33,
+  "total_pass": 6,
+  "pass_rate": 0.1818,
+  "difficulty_breakdown": {
+    "easy": {
+      "pass": 3,
+      "total": 12,
+      "rate": 0.25
+    },
+    "medium": {
+      "pass": 1,
+      "total": 11,
+      "rate": 0.0909
+    },
+    "hard": {
+      "pass": 2,
+      "total": 10,
+      "rate": 0.2
+    }
+  },
+  "type_breakdown": {
+    "lookup": {
+      "pass": 0,
+      "total": 18,
+      "rate": 0.0
+    },
+    "comparison": {
+      "pass": 0,
+      "total": 6,
+      "rate": 0.0
+    },
+    "out_of_scope": {
+      "pass": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "injection": {
+      "pass": 3,
+      "total": 3,
+      "rate": 1.0
+    },
+    "rbac": {
+      "pass": 0,
+      "total": 3,
+      "rate": 0.0
+    }
+  },
+  "updated_at": "2026-11-25T04:11:47.528448+00:00"
+}

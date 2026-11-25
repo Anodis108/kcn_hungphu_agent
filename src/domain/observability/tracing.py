@@ -31,10 +31,15 @@ ObservationType = Literal[
 def _get_langfuse():
     from langfuse import Langfuse
 
+    # Head-based sampling via Langfuse SDK sample_rate (0.0 to 1.0).
+    # Note on tail sampling: While error turns are updated with level="ERROR",
+    # full tail-based sampling (retroactively exporting only errored traces when sample_rate < 1.0)
+    # is a limitation of the client-side SDK without an OpenTelemetry tail-sampling collector.
     return Langfuse(
         public_key=settings.langfuse_public_key,
         secret_key=settings.langfuse_secret_key,
         host=settings.langfuse_host,
+        sample_rate=settings.trace_sample_rate,
         mask=lambda *, data, **_: redact_deep(data),
     )
 

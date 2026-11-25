@@ -15,9 +15,58 @@ DB, độc lập với việc validate SQL ở tầng code (src/agent/tools.py, 
 
 from __future__ import annotations
 
+import asyncio
+import re
 from contextlib import contextmanager
+from typing import Any, Callable
 
 from src.shared.settings import settings
+
+DEFAULT_SQL_LIMIT = 500
+DEFAULT_STATEMENT_TIMEOUT_MS = 5000
+
+_LIMIT_REGEX = re.compile(r"\blimit\s+\d+", re.IGNORECASE)
+
+
+def enforce_sql_limit(sql: str, default_limit: int = DEFAULT_SQL_LIMIT) -> str:
+    """Tự động thêm LIMIT nếu câu lệnh SELECT chưa có LIMIT."""
+    cleaned = (sql or "").strip()
+    if not cleaned:
+        return sql
+    # Kiểm tra xem đã có LIMIT chưa
+    if not _LIMIT_REGEX.search(cleaned):
+        # Bỏ dấu chấm phẩy cuối câu nếu có
+        body = cleaned.rstrip().rstrip(";")
+        return f"{body} LIMIT {int(default_limit)};"
+    return sql
+
+
+async def run_with_timeout_async(fn: Callable[..., Any], *args: Any, timeout_seconds: float = 5.0, **kwargs: Any) -> Any:
+    """Wrapper thực thi tool bất đồng bộ với timeout qua asyncio.wait_for."""
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn, *args, **kwargs), timeout=timeout_seconds)
+    except TimeoutError as exc:
+        raise TimeoutError(f"Thực thi tool quá thời gian chờ ({timeout_seconds}s).") from exc
+
+
+def run_with_timeout(fn: Callable[..., Any], *args: Any, timeout_seconds: float = 5.0, **kwargs: Any) -> Any:
+    """Wrapper thực thi tool đồng bộ với timeout an toàn."""
+    import concurrent.futures
+    try:
+        loop = None
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(fn, *args, **kwargs)
+                return future.result(timeout=timeout_seconds)
+        else:
+            return asyncio.run(run_with_timeout_async(fn, *args, timeout_seconds=timeout_seconds, **kwargs))
+    except (TimeoutError, concurrent.futures.TimeoutError) as exc:
+        raise TimeoutError(f"Thực thi tool quá thời gian chờ ({timeout_seconds}s).") from exc
 
 
 def is_configured() -> bool:
@@ -52,23 +101,35 @@ def get_connection(dbname: str):
     if dbname not in _allowed_dbnames():
         raise ValueError(f"dbname='{dbname}' không hợp lệ — chỉ chấp nhận {sorted(_allowed_dbnames())}.")
 
+    from src.infra.resilience.breaker import get_sql_breaker
+
+    sql_breaker = get_sql_breaker()
+    if not sql_breaker.allow_request():
+        raise RuntimeError("Dữ liệu tạm thời không khả dụng: Kết nối cơ sở dữ liệu đang gián đoạn (circuit breaker open).")
+
     import psycopg2
 
-    tz = (settings.db_timezone or "Asia/Ho_Chi_Minh").strip().strip("'\"")
-    conn = psycopg2.connect(
-        host=settings.db_host,
-        port=settings.db_port,
-        user=settings.db_user,
-        password=settings.db_password,
-        dbname=dbname,
-        connect_timeout=5,
-        options=f"-c timezone={tz}",
-    )
+    conn = None
     try:
+        tz = (settings.db_timezone or "Asia/Ho_Chi_Minh").strip().strip("'\"")
+        conn = psycopg2.connect(
+            host=settings.db_host,
+            port=settings.db_port,
+            user=settings.db_user,
+            password=settings.db_password,
+            dbname=dbname,
+            connect_timeout=5,
+            options=f"-c timezone={tz}",
+        )
         conn.set_session(readonly=True, autocommit=True)
         with conn.cursor() as cur:
             cur.execute(f"SET statement_timeout = {int(settings.db_query_timeout_s * 1000)};")
             cur.execute("SET timezone = %s;", (tz,))
         yield conn
+        sql_breaker.record_success()
+    except Exception:
+        sql_breaker.record_failure()
+        raise
     finally:
-        conn.close()
+        if conn is not None:
+            conn.close()

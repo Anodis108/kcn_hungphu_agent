@@ -1,12 +1,16 @@
 """Node execute_sql — thực thi câu truy vấn SQL đọc-only trên Postgres (Phase 3c)."""
 from __future__ import annotations
+import time
 from typing import Any
 from src.domain.agents.nodes.io import node_event
 from src.domain.agents.analytics.sql_agent.tools.scope import apply_organization_scope
+from src.domain.observability.audit import log_agent_audit
+from src.infra.storage.sql.connection import run_with_timeout
 from src.infra.storage.sql.executor import execute_sql
 from src.infra.storage.sql.validator import validate_sql
 from src.infra.llm.client import use_offline_tools
 from src.domain.observability.tracing import current_span, trace_step
+from src.shared.settings import settings
 
 def execute_sql_node(state: dict[str, Any]) -> dict[str, Any]:
     """Re-validate SQL query and execute on read-only Postgres database.
@@ -17,8 +21,15 @@ def execute_sql_node(state: dict[str, Any]) -> dict[str, Any]:
     sql_batch = (state['sql_batch'] if 'sql_batch' in state else None) or []
     user_id = (state['user_id'] if 'user_id' in state else None) or 'default'
     session_id = (state['session_id'] if 'session_id' in state else None) or 'default'
+    timeout_s = float(settings.db_query_timeout_s or 5.0)
+
     if len(sql_batch) >= 2:
+        batch_start_time = time.perf_counter()
         batch_results: list[dict[str, Any]] = []
+        has_error = False
+        error_msg = ""
+        total_rows = 0
+
         for item in sql_batch:
             sq = item['sub_question'] if 'sub_question' in item else ''
             sql = ((item['sql'] if 'sql' in item else None) or '').strip()
@@ -32,6 +43,8 @@ def execute_sql_node(state: dict[str, Any]) -> dict[str, Any]:
                 sub['output'] = val.to_dict()
             if not val.ok:
                 entry['error'] = val.reason
+                has_error = True
+                error_msg = error_msg or val.reason
                 batch_results.append(entry)
                 continue
             try:
@@ -47,7 +60,7 @@ def execute_sql_node(state: dict[str, Any]) -> dict[str, Any]:
                             rows = [{'count': 42}]
                         columns = ['count']
                     else:
-                        result = execute_sql(sql, [])
+                        result = run_with_timeout(execute_sql, sql, [], timeout_seconds=timeout_s)
                         if isinstance(result, tuple) and len(result) == 2:
                             rows, db_columns = result
                             columns = list(db_columns) if db_columns else list(rows[0].keys()) if rows else []
@@ -56,12 +69,29 @@ def execute_sql_node(state: dict[str, Any]) -> dict[str, Any]:
                             columns = list(rows[0].keys()) if rows else []
                     entry['rows'] = rows
                     entry['columns'] = columns
+                    total_rows += len(rows)
                     sub['output'] = {'row_count': len(rows), 'columns': columns}
             except Exception as exc:
+                has_error = True
+                error_msg = error_msg or str(exc)
                 entry['error'] = str(exc)
             batch_results.append(entry)
+
+        batch_duration_ms = (time.perf_counter() - batch_start_time) * 1000
+        batch_queries_summary = [b.get("sql", "") for b in batch_results]
+        log_agent_audit(
+            tool="sql_builder:batch",
+            args=batch_queries_summary,
+            duration_ms=batch_duration_ms,
+            status="error" if has_error else "success",
+            rows=total_rows,
+            user_id=user_id,
+            session_id=session_id,
+            error=error_msg if has_error else None,
+        )
+
         last = batch_results[-1] if batch_results else {}
-        return {'sql_batch_results': batch_results, 'rows': (last['rows'] if 'rows' in last else None) or [], 'columns': (last['columns'] if 'columns' in last else None) or [], 'error': '', 'events': [node_event('execute_sql', input={'sql_batch': sql_batch, 'batch_size': len(sql_batch)}, output={'sql_batch_results': batch_results, 'batch_size': len(batch_results)}, meta={'user_id': user_id, 'session_id': session_id, 'batch': True, 'ok': True})]}
+        return {'sql_batch_results': batch_results, 'rows': (last['rows'] if 'rows' in last else None) or [], 'columns': (last['columns'] if 'columns' in last else None) or [], 'error': error_msg if has_error else '', 'events': [node_event('execute_sql', input={'sql_batch': sql_batch, 'batch_size': len(sql_batch)}, output={'sql_batch_results': batch_results, 'batch_size': len(batch_results)}, meta={'user_id': user_id, 'session_id': session_id, 'batch': True, 'ok': not has_error})]}
     sql = ((state['sql'] if 'sql' in state else None) or '').strip()
     params = (state['params'] if 'params' in state else None) or []
     with trace_step(current_span(), 'apply_org_scope', input={'sql': sql}, as_type='tool') as sub:
@@ -73,9 +103,12 @@ def execute_sql_node(state: dict[str, Any]) -> dict[str, Any]:
     if not val.ok:
         err_msg = f'SQL không hợp lệ: {val.reason}'
         return {'rows': [], 'columns': [], 'error': err_msg, 'events': [node_event('execute_sql', input={'sql': sql, 'params': params}, output={'rows': [], 'columns': [], 'error': err_msg, 'revalidate_failed': True}, meta={'user_id': user_id, 'session_id': session_id, 'ok': False})]}
+    start_time = time.perf_counter()
+    timeout_s = float(settings.db_query_timeout_s or 5.0)
+
     try:
         with trace_step(current_span(), 'postgres_query', input={'sql': sql, 'params': params}, as_type='tool') as sub:
-            result = execute_sql(sql, params)
+            result = run_with_timeout(execute_sql, sql, params, timeout_seconds=timeout_s)
             if isinstance(result, tuple) and len(result) == 2:
                 rows, db_columns = result
                 columns = list(db_columns) if db_columns else list(rows[0].keys()) if rows else []
@@ -83,7 +116,29 @@ def execute_sql_node(state: dict[str, Any]) -> dict[str, Any]:
                 rows = list(result) if result is not None else []
                 columns = list(rows[0].keys()) if rows else []
             sub['output'] = {'row_count': len(rows), 'columns': columns}
+
+        duration_ms = (time.perf_counter() - start_time) * 1000
+        log_agent_audit(
+            tool="sql_builder",
+            args=sql,
+            duration_ms=duration_ms,
+            status="success",
+            rows=len(rows),
+            user_id=user_id,
+            session_id=session_id,
+        )
         return {'rows': rows, 'columns': columns, 'error': '', 'events': [node_event('execute_sql', input={'sql': sql, 'params': params}, output={'rows': rows, 'columns': columns, 'row_count': len(rows)}, meta={'user_id': user_id, 'session_id': session_id, 'ok': True})]}
     except Exception as exc:
+        duration_ms = (time.perf_counter() - start_time) * 1000
         err_msg = str(exc)
+        log_agent_audit(
+            tool="sql_builder",
+            args=sql,
+            duration_ms=duration_ms,
+            status="error",
+            rows=0,
+            user_id=user_id,
+            session_id=session_id,
+            error=err_msg,
+        )
         return {'rows': [], 'columns': [], 'error': err_msg, 'events': [node_event('execute_sql', input={'sql': sql, 'params': params}, output={'rows': [], 'columns': [], 'error': err_msg}, meta={'user_id': user_id, 'session_id': session_id, 'ok': False})]}

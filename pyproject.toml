@@ -7,3 +7,23 @@ requires-python = ">=3.11"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "resource"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [
+    "resource/knowledge_handbook",
+    "frontend",
+]
+
+[tool.ruff.lint]
+select = ["F"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests: ignore fixture redefinitions (F811), legacy imports (F401), unused variables (F841), late __future__ imports (F404)
+"tests/**" = ["F401", "F811", "F841", "F404"]
+# Scripts & eval: ignore legacy imports (F401) and unused variables (F841)
+"scripts/**" = ["F401", "F841"]
+"resource/eval/**" = ["F401"]
+# Existing pre-v21 source files: ignore legacy unused imports (F401) and unused variables (F841) without refactor
+"src/**" = ["F401", "F841"]

@@ -13,7 +13,9 @@ tests/
 *.md
 !resource/**
 resource/db/agent/data/pgdata/
+resource/db/agent/data/qdrant/
 langfuse/
 docker-compose*.yml
 Dockerfile
 frontend/
+frontend/node_modules/
